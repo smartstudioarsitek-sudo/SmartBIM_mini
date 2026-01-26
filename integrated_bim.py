@@ -2,292 +2,276 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from streamlit_drawable_canvas import st_canvas
 from io import BytesIO
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="IndoBIM Integrated: SAP + Revit + PlanSwift", layout="wide", page_icon="🏗️")
+# --- CONFIG ---
+st.set_page_config(page_title="IndoBIM Integrated", layout="wide", page_icon="🏗️")
 
-# --- CSS CUSTOMIZATION (UI PRO) ---
-st.markdown("""
-    <style>
-    .block-container {padding-top: 1rem;}
-    div.stButton > button:first-child {background-color: #2E86C1; color: white;}
-    </style>
-""", unsafe_allow_html=True)
+# --- SESSION STATE INITIALIZATION (Database Sementara) ---
+if 'nodes' not in st.session_state:
+    # Default: 4 Titik (Membentuk persegi 4x4 meter)
+    st.session_state.nodes = pd.DataFrame([
+        {"Node ID": 1, "X (m)": 0.0, "Y (m)": 0.0, "Z (m)": 0.0},
+        {"Node ID": 2, "X (m)": 4.0, "Y (m)": 0.0, "Z (m)": 0.0},
+        {"Node ID": 3, "X (m)": 4.0, "Y (m)": 4.0, "Z (m)": 0.0},
+        {"Node ID": 4, "X (m)": 0.0, "Y (m)": 4.0, "Z (m)": 0.0},
+        {"Node ID": 5, "X (m)": 0.0, "Y (m)": 0.0, "Z (m)": 3.5},
+        {"Node ID": 6, "X (m)": 4.0, "Y (m)": 0.0, "Z (m)": 3.5},
+        {"Node ID": 7, "X (m)": 4.0, "Y (m)": 4.0, "Z (m)": 3.5},
+        {"Node ID": 8, "X (m)": 0.0, "Y (m)": 4.0, "Z (m)": 3.5},
+    ])
 
-# --- CLASS: STRUCTURAL SOLVER (Si "SAP2000") ---
-class StructureSolver:
-    """
-    Meniru logika SAP2000: Menerima input bentang & beban, 
-    mengeluarkan Gaya Dalam (Momen, Geser).
-    """
-    def __init__(self, length_m, load_kN_m):
-        self.L = length_m
-        self.q = load_kN_m
-    
-    def analyze_beam(self):
-        # Analisa Balok Sederhana (Sendi-Rol)
-        # Reaksi Tumpuan
-        Rv = (self.q * self.L) / 2
-        
-        # Momen Maksimum (1/8 qL^2)
-        M_max = (1/8) * self.q * (self.L ** 2)
-        
-        # Generate Diagram Data
-        x = np.linspace(0, self.L, 100)
-        # Persamaan Momen: Mx = (qL/2)x - (q/2)x^2
-        M_x = (Rv * x) - (0.5 * self.q * x**2)
-        
-        return {
-            "Rv": Rv,
-            "M_max": M_max,
-            "x_coords": x,
-            "moment_values": M_x
-        }
+if 'frames' not in st.session_state:
+    # Default: Kolom dan Balok menghubungkan node di atas
+    st.session_state.frames = pd.DataFrame([
+        # Kolom (Vertical)
+        {"Element ID": "K1-1", "Start Node": 1, "End Node": 5, "Type": "Kolom K1"},
+        {"Element ID": "K1-2", "Start Node": 2, "End Node": 6, "Type": "Kolom K1"},
+        {"Element ID": "K1-3", "Start Node": 3, "End Node": 7, "Type": "Kolom K1"},
+        {"Element ID": "K1-4", "Start Node": 4, "End Node": 8, "Type": "Kolom K1"},
+        # Balok (Horizontal di atas)
+        {"Element ID": "B1-1", "Start Node": 5, "End Node": 6, "Type": "Balok B1"},
+        {"Element ID": "B1-2", "Start Node": 6, "End Node": 7, "Type": "Balok B1"},
+        {"Element ID": "B1-3", "Start Node": 7, "End Node": 8, "Type": "Balok B1"},
+        {"Element ID": "B1-4", "Start Node": 8, "End Node": 5, "Type": "Balok B1"},
+    ])
 
-    def recommend_section(self, M_max_kNm):
-        # Rule of Thumb Engineer Sipil berbasis Momen
-        # Asumsi Mu = 1.2DL + 1.6LL (Simplified factor 1.4)
-        Mu = M_max_kNm * 1.4
-        
-        # Pendekatan kasar dimensi ekonomis (h = sqrt(Mu) * k)
-        # Tapi kita pakai pendekatan L/12 untuk balok induk beton
-        h_min = self.L / 12 * 100 # cm
-        
-        # Pembulatan ke kelipatan 5
-        h_design = 5 * round(h_min/5)
-        if h_design < 20: h_design = 20
-        b_design = h_design * 0.6 # Lebar ~ 1/2 - 2/3 tinggi
-        b_design = 5 * round(b_design/5)
-        if b_design < 15: b_design = 15
-        
-        return f"{int(b_design)}/{int(h_design)}"
+if 'profiles' not in st.session_state:
+    # Database Profil (Revit Families)
+    st.session_state.profiles = pd.DataFrame([
+        {"Type": "Kolom K1", "b (mm)": 300, "h (mm)": 300, "Tulangan (kg/m3)": 150},
+        {"Type": "Kolom K2", "b (mm)": 150, "h (mm)": 150, "Tulangan (kg/m3)": 120},
+        {"Type": "Balok B1", "b (mm)": 200, "h (mm)": 400, "Tulangan (kg/m3)": 160},
+        {"Type": "Balok B2", "b (mm)": 150, "h (mm)": 250, "Tulangan (kg/m3)": 130},
+        {"Type": "Sloof S1", "b (mm)": 200, "h (mm)": 300, "Tulangan (kg/m3)": 140},
+    ])
 
-# --- SIDEBAR: KONFIGURASI PROYEK ---
+# --- HELPER FUNCTIONS ---
+def get_node_coords(node_id, nodes_df):
+    node = nodes_df[nodes_df["Node ID"] == node_id]
+    if not node.empty:
+        return node.iloc[0]["X (m)"], node.iloc[0]["Y (m)"], node.iloc[0]["Z (m)"]
+    return 0, 0, 0
+
+def calculate_length(row, nodes_df):
+    x1, y1, z1 = get_node_coords(row["Start Node"], nodes_df)
+    x2, y2, z2 = get_node_coords(row["End Node"], nodes_df)
+    return np.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
+
+# --- SIDEBAR (Global Settings) ---
 with st.sidebar:
-    st.title("🏗️ IndoBIM V1.0")
-    st.caption("Integrated: QS | Structural | BIM")
+    st.title("🏗️ IndoBIM Integrated")
+    st.caption("SAP (Model) + Revit (Data) + PlanSwift (Cost)")
+    st.divider()
     
-    st.header("1. Parameter Gambar")
-    scale = st.slider("Skala Pixel/Meter", 10, 50, 30)
+    st.header("💰 Database Harga (HSD)")
+    hsp_beton = st.number_input("Harga Beton (Rp/m3)", value=1100000)
+    hsp_besi = st.number_input("Harga Besi Terpasang (Rp/kg)", value=18500)
+    hsp_bekisting = st.number_input("Harga Bekisting (Rp/m2)", value=185000)
     
-    st.header("2. Parameter Beban (SAP)")
-    beban_mati = st.number_input("Dead Load (kN/m2)", value=2.0, help="Berat sendiri + Finishing")
-    beban_hidup = st.number_input("Live Load (kN/m2)", value=2.5, help="Hunian Rumah Tinggal")
-    q_total = beban_mati + beban_hidup # kN/m2 (Disederhanakan jadi beban merata balok nanti)
-    
-    st.header("3. Database Harga (PlanSwift)")
-    st.caption("Update Harga Satuan Dasar (HSD)")
-    price_beton = st.number_input("Beton K-250 (Rp/m3)", value=1100000)
-    price_besi = st.number_input("Besi Ulir (Rp/kg)", value=14500)
-    price_bekisting = st.number_input("Bekisting (Rp/m2)", value=180000)
-    price_upah_cor = st.number_input("Upah Cor (Rp/m3)", value=150000)
+    st.divider()
+    st.info("Tips: Gunakan Tab '1. Modeling' untuk mengubah koordinat dan sambungan batang.")
 
-# --- MAIN TABS ---
-tab_draw, tab_struct, tab_qs, tab_export = st.tabs([
-    "📐 1. Drafting (Revit Lite)", 
-    "⚙️ 2. Structure (Mini-SAP)", 
-    "💰 3. Estimator (PlanSwift)",
-    "📤 4. Export"
+# --- TABS ---
+tab_model, tab_data, tab_check, tab_rab = st.tabs([
+    "1️⃣ Modeling (SAP Style)", 
+    "2️⃣ Properties (Revit Style)", 
+    "3️⃣ Analysis Check", 
+    "4️⃣ PlanSwift / RAB"
 ])
 
 # ==============================================================================
-# TAB 1: DRAFTING (LOGIKA REVIT/PLAN SWIFT)
+# TAB 1: MODELING (INPUT GRID & KOORDINAT)
 # ==============================================================================
-with tab_draw:
-    st.subheader("📍 Digitasi Denah Ruangan")
-    col1, col2 = st.columns([3, 1])
+with tab_model:
+    col_m1, col_m2 = st.columns([1, 2])
     
-    with col1:
-        canvas_result = st_canvas(
-            fill_color="rgba(46, 134, 193, 0.3)",
-            stroke_width=2,
-            stroke_color="#000",
-            background_color="#fff",
-            update_streamlit=True,
-            height=500,
-            width=700,
-            drawing_mode="rect",
-            key="canvas",
-            display_toolbar=True
-        )
-    
-    with col2:
-        st.info("Panduan:")
-        st.markdown("""
-        1. Pilih **Rect** tool.
-        2. Gambar layout balok/ruangan.
-        3. Sistem akan otomatis menghitung koordinat.
-        """)
+    with col_m1:
+        st.subheader("📍 Step 1: Input Titik (Nodes)")
+        st.caption("Definisikan titik pertemuan (Joints) seperti di SAP2000.")
         
-    # PROSES DATA DARI CANVAS
-    elements = []
-    if canvas_result.json_data is not None:
-        for i, obj in enumerate(canvas_result.json_data["objects"]):
-            w_m = obj["width"] / scale
-            h_m = obj["height"] / scale
+        # Editor Nodes
+        edited_nodes = st.data_editor(st.session_state.nodes, num_rows="dynamic", key="editor_nodes")
+        st.session_state.nodes = edited_nodes # Save state
+        
+        st.subheader("🔗 Step 2: Input Batang (Frames)")
+        st.caption("Hubungkan titik-titik tersebut menjadi elemen struktur.")
+        
+        # Dropdown options for Types based on Profile DB
+        frame_config = {
+            "Type": st.column_config.SelectboxColumn(
+                "Profil / Family",
+                options=st.session_state.profiles["Type"].unique().tolist(),
+                required=True
+            ),
+            "Start Node": st.column_config.NumberColumn("Start Node", step=1),
+            "End Node": st.column_config.NumberColumn("End Node", step=1)
+        }
+        
+        edited_frames = st.data_editor(st.session_state.frames, num_rows="dynamic", column_config=frame_config, key="editor_frames")
+        st.session_state.frames = edited_frames # Save state
+        
+    with col_m2:
+        st.subheader("👁️ 3D Wireframe View")
+        
+        # Visualization Logic
+        fig = plt.figure(figsize=(8, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Plot Nodes
+        nodes = st.session_state.nodes
+        ax.scatter(nodes["X (m)"], nodes["Y (m)"], nodes["Z (m)"], c='red', marker='o', s=50, label='Joints')
+        
+        # Label Nodes
+        for _, row in nodes.iterrows():
+            ax.text(row["X (m)"], row["Y (m)"], row["Z (m)"], f" {int(row['Node ID'])}", fontsize=8)
             
-            # Logic: Sisi terpanjang dianggap bentang balok induk
-            bentang = max(w_m, h_m)
-            trib_width = min(w_m, h_m) / 2 # Lebar tributary area (asumsi amplop)
+        # Plot Frames
+        frames = st.session_state.frames
+        for _, row in frames.iterrows():
+            x1, y1, z1 = get_node_coords(row["Start Node"], nodes)
+            x2, y2, z2 = get_node_coords(row["End Node"], nodes)
             
-            # Beban merata pada balok (q = Luas * Beban / Panjang) 
-            # Simplifikasi: q (kN/m') = Beban Area (kN/m2) * Lebar Tributary (m)
-            q_line = q_total * (min(w_m, h_m) / 2) * 2 # Asumsi 2 sisi
+            # Warna beda untuk Kolom vs Balok
+            color = 'blue' if "Balok" in row["Type"] else 'green'
+            line_width = 2 if "Balok" in row["Type"] else 3
             
-            elements.append({
-                "ID": f"B-{i+1}",
-                "Type": "Balok Induk",
-                "Bentang (m)": round(bentang, 2),
-                "Load (kN/m)": round(q_line, 2),
-                "W_px": obj["width"], "H_px": obj["height"],
-                "Left": obj["left"], "Top": obj["top"],
-                "Luas (m2)": round(w_m*h_m, 2)
-            })
+            ax.plot([x1, x2], [y1, y2], [z1, z2], c=color, linewidth=line_width)
             
-    df_elements = pd.DataFrame(elements)
+            # Label Element di tengah batang
+            mx, my, mz = (x1+x2)/2, (y1+y2)/2, (z1+z2)/2
+            ax.text(mx, my, mz, row["Type"], fontsize=6, color='grey')
+
+        ax.set_xlabel('X (Meter)')
+        ax.set_ylabel('Y (Meter)')
+        ax.set_zlabel('Z (Meter)')
+        ax.set_title("Visualisasi Struktur Wireframe")
+        st.pyplot(fig)
+        st.caption("Hijau: Kolom/Vertikal | Biru: Balok/Horizontal")
 
 # ==============================================================================
-# TAB 2: ANALISA STRUKTUR (LOGIKA SAP2000)
+# TAB 2: PROPERTIES (DATABASE PROFIL)
 # ==============================================================================
-with tab_struct:
-    st.subheader("⚙️ Analisa Mekanika & Desain Penampang")
+with tab_model: # Saya gabung di tab model biar flow-nya enak, tapi logikanya "Revit"
+    st.divider()
+with tab_data:
+    st.subheader("📚 Family & Type Manager (Revit Logic)")
+    st.markdown("""
+    Di sini kita mendefinisikan **"Apa itu K1?"** atau **"Apa itu B1?"**. 
+    Ubah dimensi di sini, maka seluruh perhitungan RAB akan berubah otomatis (Parametrik).
+    """)
     
-    if not df_elements.empty:
-        col_list, col_detail = st.columns([1, 2])
+    edited_profiles = st.data_editor(st.session_state.profiles, num_rows="dynamic", key="editor_profiles")
+    st.session_state.profiles = edited_profiles
+    
+    st.info("Tips: 'Tulangan (kg/m3)' adalah estimasi rasio berat besi per m3 beton. Untuk rumah tinggal, kolom biasanya 150-200 kg/m3.")
+
+# ==============================================================================
+# TAB 3: ANALYSIS CHECK (SIMPLE SAFETY)
+# ==============================================================================
+with tab_check:
+    st.subheader("⚙️ Preliminary Structural Check")
+    st.write("Mengecek apakah dimensi balok/kolom masuk akal terhadap bentangnya (Rule of Thumb SNI).")
+    
+    # Merge Frame Data with Node Coordinates to calculate Length
+    df_calc = st.session_state.frames.copy()
+    df_calc["Panjang (m)"] = df_calc.apply(lambda x: calculate_length(x, st.session_state.nodes), axis=1)
+    
+    # Merge with Profile Data to get Dimensions
+    df_calc = pd.merge(df_calc, st.session_state.profiles, on="Type", how="left")
+    
+    # Logic Cek
+    checks = []
+    for index, row in df_calc.iterrows():
+        status = "✅ OK"
+        note = "Aman"
         
-        with col_list:
-            st.write("Pilih Elemen Struktur:")
-            selected_id = st.selectbox("ID Balok", df_elements["ID"])
-            
-            # Get data selected
-            data = df_elements[df_elements["ID"] == selected_id].iloc[0]
-            st.metric("Bentang", f"{data['Bentang (m)']} m")
-            st.metric("Beban Merata (q)", f"{data['Load (kN/m)']} kN/m'")
+        # Cek Balok (Tinggi min L/12)
+        if "Balok" in row["Type"]:
+            min_h = (row["Panjang (m)"] * 1000) / 12 # dalam mm
+            if row["h (mm)"] < min_h:
+                status = "⚠️ Warning"
+                note = f"Terlalu Tipis (Min h={min_h:.0f}mm)"
         
-        with col_detail:
-            # PANGGIL CLASS StructureSolver
-            solver = StructureSolver(data['Bentang (m)'], data['Load (kN/m)'])
-            res = solver.analyze_beam()
-            rec_dim = solver.recommend_section(res['M_max'])
-            
-            # Plotting Matplotlib (Diagram Momen)
-            fig, ax = plt.subplots(figsize=(8, 3))
-            ax.plot(res['x_coords'], res['moment_values'], color='red', label='Bidang Momen (M)')
-            ax.fill_between(res['x_coords'], res['moment_values'], color='red', alpha=0.1)
-            ax.set_title(f"Diagram Momen Balok {selected_id} (M.max = {res['M_max']:.2f} kNm)")
-            ax.set_xlabel("Jarak (m)")
-            ax.set_ylabel("Momen (kNm)")
-            ax.grid(True, linestyle='--')
-            st.pyplot(fig)
-            
-            # Output Engineering
-            st.success(f"✅ Rekomendasi Dimensi Penampang (SNI Rule of Thumb): **{rec_dim} cm**")
-            
-            # Simpan dimensi ke dataframe utama untuk dipakai QS
-            idx = df_elements.index[df_elements['ID'] == selected_id].tolist()[0]
-            # Parsing "25/40" menjadi angka
-            b_dim = int(rec_dim.split("/")[0]) / 100 # convert to m
-            h_dim = int(rec_dim.split("/")[1]) / 100 # convert to m
-            
-            # Update all rows (in reality, should be per row, but simple for now)
-            df_elements["b (m)"] = b_dim
-            df_elements["h (m)"] = h_dim
-            
+        # Cek Kolom (Langsing < 4m biasanya aman untuk 30x30)
+        if "Kolom" in row["Type"]:
+            if row["Panjang (m)"] > 4.0 and row["b (mm)"] < 200:
+                status = "⚠️ Warning"
+                note = "Bahaya Tekuk (Slenderness)"
+
+        checks.append({"ID": row["Element ID"], "Type": row["Type"], "Panjang": f"{row['Panjang (m)']:.2f} m", "Dimensi": f"{row['b (mm)']}x{row['h (mm)']}", "Status": status, "Catatan": note})
+    
+    st.dataframe(pd.DataFrame(checks))
+
+# ==============================================================================
+# TAB 4: PLANSWIFT / RAB (ESTIMATOR)
+# ==============================================================================
+with tab_rab:
+    st.subheader("💰 Automated Bill of Quantities (BoQ)")
+    
+    if df_calc.empty:
+        st.warning("Data struktur belum lengkap.")
     else:
-        st.warning("Gambar dulu di Tab 1!")
-
-# ==============================================================================
-# TAB 3: ESTIMASI BIAYA / QS (LOGIKA PLANSWIFT)
-# ==============================================================================
-with tab_qs:
-    st.subheader("💰 Bill of Quantities (BoQ) & RAB")
-    
-    if not df_elements.empty and "h (m)" in df_elements.columns:
-        # 1. HITUNG VOLUME REAL (Logic BIM: Geometry -> Volume)
-        # Volume Beton = Panjang x Lebar x Tinggi
-        df_elements["Vol. Beton (m3)"] = df_elements["Bentang (m)"] * df_elements["b (m)"] * df_elements["h (m)"]
+        # 1. Hitung Volume
+        # Vol Beton (m3) = b * h * L
+        df_calc["Vol Beton (m3)"] = (df_calc["b (mm)"]/1000) * (df_calc["h (mm)"]/1000) * df_calc["Panjang (m)"]
         
-        # Luas Bekisting = (2 x Tinggi + Lebar Bawah) x Panjang
-        df_elements["Luas Bekisting (m2)"] = (2 * df_elements["h (m)"] + df_elements["b (m)"]) * df_elements["Bentang (m)"]
+        # Berat Besi (kg) = Vol Beton * Rasio
+        df_calc["Berat Besi (kg)"] = df_calc["Vol Beton (m3)"] * df_calc["Tulangan (kg/m3)"]
         
-        # Berat Besi (Logic Engineer: Asumsi rasio penulangan 150kg/m3 beton untuk balok tahan gempa)
-        ratio_besi = 150 # kg/m3
-        df_elements["Berat Besi (kg)"] = df_elements["Vol. Beton (m3)"] * ratio_besi
+        # Luas Bekisting (m2)
+        # Balok = (2h + b) * L (Sisi bawah + 2 sisi samping) -> Asumsi sederhana
+        # Kolom = (2h + 2b) * L (4 sisi)
+        def calc_bekisting(row):
+            if "Kolom" in row["Type"]:
+                keliling = 2 * (row["b (mm)"] + row["h (mm)"]) / 1000
+                return keliling * row["Panjang (m)"]
+            else: # Balok
+                keliling = (2 * row["h (mm)"] + row["b (mm)"]) / 1000 # Atas tidak dibekisting
+                return keliling * row["Panjang (m)"]
+                
+        df_calc["Luas Bekisting (m2)"] = df_calc.apply(calc_bekisting, axis=1)
         
-        st.dataframe(df_elements[["ID", "Bentang (m)", "b (m)", "h (m)", "Vol. Beton (m3)", "Berat Besi (kg)"]])
+        # Tampilkan Tabel Detail
+        st.markdown("#### Detail Volume per Elemen")
+        st.dataframe(df_calc[["Element ID", "Type", "Panjang (m)", "Vol Beton (m3)", "Berat Besi (kg)", "Luas Bekisting (m2)"]])
         
         st.divider()
         
-        # 2. ANALISA HARGA SATUAN (AHS)
-        st.markdown("### 📋 Rekapitulasi Biaya")
+        # 2. Rekapitulasi & Biaya
+        st.markdown("#### 📊 Rekapitulasi Biaya (RAB)")
         
-        vol_beton_total = df_elements["Vol. Beton (m3)"].sum()
-        luas_bekisting_total = df_elements["Luas Bekisting (m2)"].sum()
-        berat_besi_total = df_elements["Berat Besi (kg)"].sum()
+        total_beton = df_calc["Vol Beton (m3)"].sum()
+        total_besi = df_calc["Berat Besi (kg)"].sum()
+        total_bek = df_calc["Luas Bekisting (m2)"].sum()
         
-        # Breakdown Costs
-        cost_beton = vol_beton_total * (price_beton + price_upah_cor) # Material + Upah
-        cost_besi = berat_besi_total * (price_besi + 2500) # Material + Upah rakit (2500)
-        cost_bekisting = luas_bekisting_total * (price_bekisting + 50000) # Material + Upah pasang
+        biaya_beton = total_beton * hsp_beton
+        biaya_besi = total_besi * hsp_besi
+        biaya_bek = total_bek * hsp_bekisting
         
-        rab_data = {
-            "Item Pekerjaan": ["Pekerjaan Beton (Cor + Upah)", "Pekerjaan Pembesian (Ulir)", "Pekerjaan Bekisting"],
-            "Volume": [vol_beton_total, berat_besi_total, luas_bekisting_total],
+        summary_data = {
+            "Uraian Pekerjaan": ["Pekerjaan Beton Struktur", "Pekerjaan Pembesian", "Pekerjaan Bekisting"],
+            "Volume": [total_beton, total_besi, total_bek],
             "Satuan": ["m3", "kg", "m2"],
-            "Harga Satuan (Est)": [price_beton+price_upah_cor, price_besi+2500, price_bekisting+50000],
-            "Total Harga": [cost_beton, cost_besi, cost_bekisting]
+            "Harga Satuan": [hsp_beton, hsp_besi, hsp_bekisting],
+            "Total Harga": [biaya_beton, biaya_besi, biaya_bek]
         }
-        df_rab = pd.DataFrame(rab_data)
         
-        st.table(df_rab.style.format({"Volume": "{:.2f}", "Harga Satuan (Est)": "{:,.0f}", "Total Harga": "{:,.0f}"}))
+        df_sum = pd.DataFrame(summary_data)
+        st.dataframe(df_sum.style.format({
+            "Volume": "{:.2f}", 
+            "Harga Satuan": "Rp {:,.0f}", 
+            "Total Harga": "Rp {:,.0f}"
+        }), use_container_width=True)
         
-        grand_total = df_rab["Total Harga"].sum()
-        ppn = grand_total * 0.11
-        st.success(f"### Grand Total (Inc. PPN 11%): Rp {grand_total + ppn:,.0f}")
+        grand_total = df_sum["Total Harga"].sum()
+        st.success(f"### Total Estimasi Struktur: Rp {grand_total:,.0f}")
         
-    else:
-        st.warning("Lakukan Analisa Struktur di Tab 2 terlebih dahulu untuk mendapatkan dimensi balok!")
-
-# ==============================================================================
-# TAB 4: EXPORT & LAPORAN
-# ==============================================================================
-with tab_export:
-    st.subheader("📤 Export Data")
-    col_ex1, col_ex2 = st.columns(2)
-    
-    with col_ex1:
-        st.markdown("#### Export Excel (Untuk QS)")
-        if 'df_rab' in locals():
-            # Convert to Excel in memory
+        # Export Button
+        def to_excel(df):
             output = BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df_rab.to_excel(writer, sheet_name='RAB', index=False)
-                df_elements.to_excel(writer, sheet_name='Backup Volume', index=False)
+                df.to_excel(writer, index=False, sheet_name='RAB')
+            return output.getvalue()
             
-            st.download_button(
-                label="📥 Download RAB (.xlsx)",
-                data=output.getvalue(),
-                file_name="RAB_Project_IndoBIM.xlsx",
-                mime="application/vnd.ms-excel"
-            )
-            
-    with col_ex2:
-        st.markdown("#### Export Koordinat (Untuk Drafter)")
-        # Simulasi Text File untuk Script AutoCAD
-        if not df_elements.empty:
-            script_cad = ";; Script AutoCAD Generated by IndoBIM\n"
-            for index, row in df_elements.iterrows():
-                # Simple rectangle command script
-                script_cad += f"RECTANG {row['Left']},{row['Top']} @{row['W_px']},{row['H_px']}\n"
-                script_cad += f"TEXT {row['Left'] + 10},{row['Top'] + 10} 20 0 {row['ID']}\n"
-            
-            st.download_button(
-                label="📥 Download Script AutoCAD (.scr)",
-                data=script_cad,
-                file_name="draw_layout.scr",
-                mime="text/plain"
-            )
-            st.caption("Cara pakai: Buka AutoCAD -> Ketik 'SCRIPT' -> Pilih file ini.")
+        st.download_button("📥 Download RAB Excel", to_excel(df_sum), "RAB_IndoBIM.xlsx")
