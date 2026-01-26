@@ -1,4 +1,6 @@
+
 streamlit
 pandas
-streamlit-drawable-canvas
 XlsxWriter
+streamlit-drawable-canvas
+matplotlib
