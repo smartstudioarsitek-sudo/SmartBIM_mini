@@ -87,19 +87,16 @@ with tab1:
         df_ruang = pd.DataFrame(st.session_state['ruangan'])
         st.dataframe(df_ruang, use_container_width=True)
         
+        # --- PERBAIKAN DI SINI ---
+        # Hitung dulu di luar f-string agar tidak SyntaxError
         total_l = df_ruang["Luas (m2)"].sum()
+        total_k = df_ruang["Keliling (m')"].sum() # Hitung keliling di variabel terpisah
         max_bentang = df_ruang[["P", "L"]].max().max()
         
         c1, c2, c3 = st.columns(3)
         c1.metric("Total Luas Lantai", f"{total_l} m2")
-        c2.metric("Total Panjang Dinding (Kotor)", f"{df_ruang[\"Keliling (m')\"].sum()} m'")
+        c2.metric("Total Panjang Dinding (Kotor)", f"{total_k} m'") # Panggil variabelnya saja
         c3.metric("Bentang Ruang Terlebar", f"{max_bentang} m")
-        
-        # Tombol Hapus Reset
-        if st.button("🗑️ Reset Data Ruangan"):
-            st.session_state['ruangan'] = []
-            st.rerun()
-
 # ==============================================================================
 # TAB 2: ANALISA STRUKTUR (THE LOGIC)
 # ==============================================================================
@@ -195,3 +192,4 @@ with tab3:
         grand_total = df_rab["Total Harga"].sum()
         st.success(f"### 🏷️ Estimasi Biaya Fisik: Rp {grand_total:,.0f}")
         st.caption(f"Harga per m2 Bangunan: Rp {grand_total/total_luas:,.0f} /m2")
+
