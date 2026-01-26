@@ -1,180 +1,197 @@
 import streamlit as st
 import pandas as pd
 import math
-import json
-from io import BytesIO
 
-# --- 1. CONFIGURASI HALAMAN ---
-st.set_page_config(page_title="House Estimator - Modul Pondasi", layout="wide")
+# --- KONFIGURASI HALAMAN ---
+st.set_page_config(page_title="Smart House Estimator", layout="wide")
 
-st.title("🏠 Prototype: Struktur Bawah Rumah Tinggal")
-st.caption("Alur: Analisa Beban → Dimensi Pondasi & Sloof → RAB")
-st.divider()
+# --- CSS CUSTOM UNTUK TAMPILAN MODERN ---
+st.markdown("""
+<style>
+    .big-font { font-size:20px !important; font-weight: bold; color: #2E86C1; }
+    .step-box { background-color: #F0F3F4; padding: 20px; border-radius: 10px; border-left: 5px solid #2E86C1; }
+    .result-box { background-color: #D5F5E3; padding: 20px; border-radius: 10px; border-left: 5px solid #27AE60; }
+</style>
+""", unsafe_allow_html=True)
 
-# --- 2. LOGIKA STRUKTUR (THE BRAIN) ---
-def analisa_struktur_pondasi(lantai, jenis_tanah, panjang_total):
-    # A. ANALISA BEBAN (LOAD)
-    # Asumsi Beban Merata (q) dari Atap + Dinding + Plafon
-    if lantai == "1 Lantai":
-        beban_per_m = 1800 # kg/m' (Estimasi rumah standar)
-        dim_sloof = "15/20"
-        besi_utama = 4
-    else: # 2 Lantai
-        beban_per_m = 3500 # kg/m' (Lebih berat)
-        dim_sloof = "20/30"
-        besi_utama = 6
+st.title("🏠 Smart House Estimator: Logic & Cost")
+st.caption("Alur: Input Ruangan → Analisa Struktur Otomatis → RAB Keluar")
+
+# --- INISIALISASI SESSION STATE (AGAR DATA TERSIMPAN SAAT PINDAH TAB) ---
+if 'ruangan' not in st.session_state:
+    st.session_state['ruangan'] = []
+if 'total_luas' not in st.session_state:
+    st.session_state['total_luas'] = 0
+
+# --- FUNGSI LOGIKA STRUKTUR (MOMEN & DIMENSI) ---
+def analisa_struktur_balok(bentang_terpanjang):
+    # Rule of Thumb Struktur Beton (SNI Sederhana)
+    # Tinggi Balok (h) = 1/12 s.d 1/10 Bentang
+    # Lebar Balok (b) = 1/2 s.d 2/3 Tinggi Balok
+    
+    h_perlu = bentang_terpanjang / 12 
+    h_rekom = math.ceil(h_perlu * 100) # cm
+    
+    # Standarisasi Dimensi (misal kelipatan 5cm)
+    if h_rekom < 20: h_rekom = 20
+    
+    b_rekom = math.ceil((h_rekom / 2))
+    
+    # Analisa Besi (Pendekatan Momen Sederhana ql^2/8)
+    # Asumsi beban 2 ton/m (tembok + plat)
+    q = 2000 # kg/m
+    L = bentang_terpanjang
+    Mu = (1/8) * q * (L**2) # kg.m
+    
+    # Rekomendasi Besi Utama
+    if L <= 3: besi = "4 D10"
+    elif L <= 4: besi = "4 D12"
+    elif L <= 5: besi = "6 D12"
+    else: besi = "6 D16 (Perlu Hitungan Detail!)"
+    
+    return h_rekom, b_rekom, Mu, besi
+
+# --- TAB NAVIGASI ---
+tab1, tab2, tab3 = st.tabs(["1️⃣ Denah & Ruang", "2️⃣ Cek Struktur", "3️⃣ RAB Final"])
+
+# ==============================================================================
+# TAB 1: INPUT DENAH (USER FRIENDLY)
+# ==============================================================================
+with tab1:
+    st.markdown('<div class="step-box">Langkah 1: Masukkan daftar ruangan yang akan dibangun. Sistem akan menghitung luas & keliling otomatis.</div>', unsafe_allow_html=True)
+    
+    col_in1, col_in2, col_in3 = st.columns([2, 1, 1])
+    with col_in1:
+        nama_ruang = st.text_input("Nama Ruangan", placeholder="Contoh: Kamar Tidur Utama")
+    with col_in2:
+        panjang = st.number_input("Panjang (m)", min_value=1.0, value=3.0, step=0.5)
+    with col_in3:
+        lebar = st.number_input("Lebar (m)", min_value=1.0, value=3.0, step=0.5)
         
-    # B. DAYA DUKUNG TANAH (SOIL BEARING)
-    # Sigma tanah (kg/cm2) konversi ke kg/m2
-    if jenis_tanah == "Tanah Keras/Cadas":
-        sigma = 2.0 * 10000 # 20.000 kg/m2
-    elif jenis_tanah == "Tanah Sedang/Liat":
-        sigma = 1.0 * 10000 # 10.000 kg/m2
-    else: # Tanah Lunak
-        sigma = 0.6 * 10000 # 6.000 kg/m2
-        
-    # C. HITUNG LEBAR PERLU (B)
-    # Rumus: Area Perlu = Beban / Daya Dukung
-    # Lebar (B) = Beban_per_m / (Sigma * 1m)
-    lebar_perlu_m = beban_per_m / sigma
-    
-    # Safety Factor & Minimal Width (Empiris)
-    lebar_rekomendasi = max(lebar_perlu_m * 1.5, 0.60) # Minimal 60cm
-    
-    return {
-        "beban": beban_per_m,
-        "sigma": sigma,
-        "lebar_min": round(lebar_rekomendasi, 2),
-        "sloof_rec": dim_sloof,
-        "besi_rec": besi_utama
-    }
+    if st.button("➕ Tambah Ruangan"):
+        luas = panjang * lebar
+        keliling = 2 * (panjang + lebar)
+        # Simpan ke Session State
+        st.session_state['ruangan'].append({
+            "Nama": nama_ruang,
+            "P": panjang,
+            "L": lebar,
+            "Luas (m2)": luas,
+            "Keliling (m')": keliling
+        })
+        st.success(f"Ruangan '{nama_ruang}' ditambahkan!")
 
-def hitung_volume_rab(l_atas, l_bawah, tinggi, pjg, h_sloof, b_sloof, prices, oh):
-    # 1. Volume Galian (Trapisum + Space Kiri Kanan)
-    # Asumsi kedalaman galian = Tinggi Pondasi + 5cm Pasir + 15cm Aanstamping
-    dalam_galian = tinggi + 0.20
-    l_galian_atas = l_bawah + 0.20 # Space kerja
-    vol_galian = ((l_bawah + l_galian_atas)/2 * dalam_galian) * pjg
-    
-    # 2. Pasangan Batu Kali (Trapesium)
-    luas_penampang = ((l_atas + l_bawah)/2) * tinggi
-    vol_batu = luas_penampang * pjg
-    
-    # 3. Sloof Beton (Balok)
-    vol_sloof = (b_sloof * h_sloof) * pjg
-    
-    # 4. Besi Sloof (kg)
-    # Asumsi Besi Utama D10, Begel d8-150
-    berat_d10 = 0.617
-    berat_d8 = 0.395
-    # Besi Utama
-    kg_utama = (pjg * 4) * berat_d10 * 1.05 # 4 batang + waste
-    # Begel
-    keliling_begel = 2 * ((h_sloof-0.05) + (b_sloof-0.05))
-    jml_begel = (pjg / 0.15) + 1
-    kg_begel = (keliling_begel * jml_begel) * berat_d8 * 1.05
-    total_besi = kg_utama + kg_begel
-    
-    # 5. Bekisting Sloof (Kiri Kanan)
-    luas_bek = (2 * h_sloof) * pjg
-    
-    # HITUNG BIAYA (HSP)
-    # Koefisien Sederhana (Bisa disesuaikan SE 182)
-    hsp_galian = (0.75 * prices['u_pekerja']) * oh
-    
-    # AHSP Batu Kali 1:5
-    hsp_batu = ((1.2*prices['m_batu'] + 136*prices['m_semen'] + 0.54*prices['m_pasir']) + \
-               (1.5*prices['u_pekerja'] + 0.75*prices['u_tukang'])) * oh
-               
-    # AHSP Beton Sloof (Campuran Manual 1:2:3)
-    hsp_sloof = ((326*prices['m_semen'] + 0.52*prices['m_pasir'] + 0.76*prices['m_split']) + \
-                (1.65*prices['u_pekerja'] + 0.275*prices['u_tukang'])) * oh
+    # Tampilkan Tabel Ruangan
+    if len(st.session_state['ruangan']) > 0:
+        st.divider()
+        df_ruang = pd.DataFrame(st.session_state['ruangan'])
+        st.dataframe(df_ruang, use_container_width=True)
+        
+        total_l = df_ruang["Luas (m2)"].sum()
+        max_bentang = df_ruang[["P", "L"]].max().max()
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Luas Lantai", f"{total_l} m2")
+        c2.metric("Total Panjang Dinding (Kotor)", f"{df_ruang[\"Keliling (m')\"].sum()} m'")
+        c3.metric("Bentang Ruang Terlebar", f"{max_bentang} m")
+        
+        # Tombol Hapus Reset
+        if st.button("🗑️ Reset Data Ruangan"):
+            st.session_state['ruangan'] = []
+            st.rerun()
+
+# ==============================================================================
+# TAB 2: ANALISA STRUKTUR (THE LOGIC)
+# ==============================================================================
+with tab2:
+    if len(st.session_state['ruangan']) == 0:
+        st.warning("⚠️ Harap isi Data Ruangan di Tab 1 terlebih dahulu.")
+    else:
+        st.markdown('<div class="step-box">Langkah 2: Berdasarkan denah di Tab 1, sistem menganalisa kebutuhan struktur agar rumah aman namun efisien.</div>', unsafe_allow_html=True)
+        
+        # Ambil data dari Tab 1
+        df_ruang = pd.DataFrame(st.session_state['ruangan'])
+        bentang_max = df_ruang[["P", "L"]].max().max()
+        
+        # Panggil Fungsi Analisa
+        h_balok, b_balok, Momen, Tulangan = analisa_struktur_balok(bentang_max)
+        
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            st.subheader("🔍 Analisa Beban")
+            st.info(f"Bentang Terpanjang: **{bentang_max} meter**")
+            st.write(f"Estimasi Momen Lentur (Mu): **{Momen/1000:.2f} Ton.m**")
+            
+            if bentang_max > 5:
+                st.error("⚠️ Peringatan: Ada ruangan dengan bentang > 5 meter. Wajib pakai kolom praktis tambahan atau konsultasi sipil.")
+            else:
+                st.success("✅ Bentang aman untuk struktur rumah tinggal standar.")
                 
-    # AHSP Besi
-    hsp_besi = (1.05*prices['m_besi'] + (0.007*prices['u_pekerja'] + 0.007*prices['u_tukang'])) * oh
-    
-    # AHSP Bekisting
-    hsp_bek = (0.045*prices['m_kayu'] + (0.66*prices['u_pekerja'] + 0.33*prices['u_tukang'])) * oh
-    
-    return {
-        "vol": [vol_galian, vol_batu, vol_sloof, total_besi, luas_bek],
-        "hsp": [hsp_galian, hsp_batu, hsp_sloof, hsp_besi, hsp_bek]
-    }
+        with col_s2:
+            st.subheader("🛠️ Rekomendasi Dimensi")
+            st.markdown(f"""
+            Untuk menahan beban di atas, sistem merekomendasikan:
+            * **Dimensi Balok Gantung:** {b_balok} x {h_balok} cm
+            * **Dimensi Kolom Utama:** {b_balok} x {b_balok} cm
+            * **Penulangan Utama:** {Tulangan}
+            * **Begel/Sengkang:** Ø8 - 150 mm
+            """)
+            
+        st.divider()
+        st.caption("User Override (Jika ingin mengubah rekomendasi):")
+        c_ov1, c_ov2 = st.columns(2)
+        final_b = c_ov1.number_input("Lebar Beton (cm)", value=int(b_balok))
+        final_h = c_ov2.number_input("Tinggi Beton (cm)", value=int(h_balok))
 
-# --- 3. INPUT USER ---
-with st.sidebar:
-    st.header("1. Kriteria Desain")
-    lantai_in = st.selectbox("Jumlah Lantai", ["1 Lantai", "2 Lantai"])
-    tanah_in = st.selectbox("Kondisi Tanah", ["Tanah Keras/Cadas", "Tanah Sedang/Liat", "Tanah Lunak/Rawa"])
-    panjang_in = st.number_input("Total Panjang Pondasi (m')", 100.0)
-
-# --- 4. STEP 1: ANALISA STRUKTUR ---
-st.subheader("Step 1: Analisa Beban & Dimensi")
-analisa = analisa_struktur_pondasi(lantai_in, tanah_in, panjang_in)
-
-c1, c2, c3 = st.columns(3)
-c1.info(f"⬇️ **Estimasi Beban:** {analisa['beban']} kg/m'")
-c2.info(f"🌍 **Daya Dukung Tanah:** {analisa['sigma']} kg/m2")
-c3.warning(f"📐 **Lebar Bawah Perlu:** Min. {analisa['lebar_min']*100:.0f} cm")
-
-# --- 5. STEP 2: PENENTUAN DIMENSI ---
-st.divider()
-st.subheader("Step 2: Dimensi Final (User Decision)")
-
-col_d1, col_d2 = st.columns(2)
-with col_d1:
-    st.markdown("### 🪨 Pondasi Batu Kali")
-    l_atas = st.number_input("Lebar Atas (m)", 0.30)
-    l_bawah = st.number_input("Lebar Bawah (m)", value=analisa['lebar_min'])
-    t_pondasi = st.number_input("Tinggi Pondasi (m)", 0.80)
-
-with col_d2:
-    st.markdown(f"### 🏗️ Sloof Beton ({analisa['sloof_rec']})")
-    b_sloof = st.number_input("Lebar Sloof (m)", 0.15)
-    h_sloof = st.number_input("Tinggi Sloof (m)", 0.20)
-    st.caption(f"Rekomendasi Tulangan: {analisa['besi_rec']} bh Diameter 10mm")
-
-# --- 6. STEP 3: INPUT HARGA & RAB ---
-st.divider()
-st.subheader("Step 3: Analisa Biaya (RAB)")
-
-with st.expander("💰 Input Harga Satuan (Buka Disini)", expanded=False):
-    c_p1, c_p2 = st.columns(2)
-    with c_p1:
-        pr_pekerja = st.number_input("Upah Pekerja", 110000)
-        pr_tukang = st.number_input("Upah Tukang", 135000)
-        pr_batu = st.number_input("Harga Batu Kali (m3)", 250000)
-        pr_semen = st.number_input("Harga Semen (kg)", 1600)
-    with c_p2:
-        pr_pasir = st.number_input("Harga Pasir (m3)", 220000)
-        pr_split = st.number_input("Harga Split (m3)", 300000)
-        pr_besi = st.number_input("Harga Besi (kg)", 14000)
-        pr_kayu = st.number_input("Harga Kayu (m3)", 2500000)
-    
-    overhead_in = st.slider("Overhead %", 10, 15, 10)
-
-# PACKING HARGA
-prices = {
-    'u_pekerja': pr_pekerja, 'u_tukang': pr_tukang,
-    'm_batu': pr_batu, 'm_semen': pr_semen, 'm_pasir': pr_pasir,
-    'm_split': pr_split, 'm_besi': pr_besi, 'm_kayu': pr_kayu
-}
-
-# HITUNG TOTAL
-rab = hitung_volume_rab(l_atas, l_bawah, t_pondasi, panjang_in, h_sloof, b_sloof, prices, 1+overhead_in/100)
-
-# TABEL OUTPUT
-df_rab = pd.DataFrame({
-    "Uraian Pekerjaan": ["Galian Tanah", "Pasangan Batu Kali (1:5)", "Beton Sloof (K-175)", "Pembesian Sloof", "Bekisting Sloof"],
-    "Volume": rab['vol'],
-    "Satuan": ["m3", "m3", "m3", "kg", "m2"],
-    "Harga Satuan": rab['hsp'],
-})
-df_rab["Total Harga"] = df_rab["Volume"] * df_rab["Harga Satuan"]
-
-st.dataframe(df_rab.style.format({
-    "Volume": "{:.2f}", "Harga Satuan": "{:,.0f}", "Total Harga": "{:,.0f}"
-}), use_container_width=True)
-
-total = df_rab["Total Harga"].sum()
-st.success(f"## 💰 Total Biaya Pondasi: Rp {total:,.0f}")
+# ==============================================================================
+# TAB 3: RAB FINAL (OUTPUT)
+# ==============================================================================
+with tab3:
+    if len(st.session_state['ruangan']) == 0:
+        st.warning("⚠️ Data kosong.")
+    else:
+        st.markdown('<div class="result-box">Langkah 3: Berikut adalah estimasi biaya berdasarkan Volume Ruangan & Dimensi Struktur.</div>', unsafe_allow_html=True)
+        
+        # INPUT HARGA CEPAT
+        with st.expander("💰 Update Harga Satuan (HSD)", expanded=False):
+            h_beton = st.number_input("HSP Beton Struktur /m3", value=4500000)
+            h_dinding = st.number_input("HSP Pas. Bata + Plester /m2", value=250000)
+            h_lantai = st.number_input("HSP Keramik /m2", value=180000)
+            h_plafon = st.number_input("HSP Plafon /m2", value=120000)
+            
+        # HITUNG VOLUME OTOMATIS
+        # 1. Volume Struktur (Kolom + Balok)
+        # Asumsi panjang balok = total keliling dinding
+        # Asumsi kolom = setiap 3 meter ada kolom (Keliling / 3)
+        total_keliling = df_ruang["Keliling (m')"].sum()
+        total_luas = df_ruang["Luas (m2)"].sum()
+        
+        vol_balok = total_keliling * (final_b/100) * (final_h/100)
+        
+        jml_kolom = math.ceil(total_keliling / 3.0)
+        vol_kolom = jml_kolom * 3.5 * (final_b/100) * (final_b/100) # Tinggi kolom 3.5m
+        
+        vol_beton_total = vol_balok + vol_kolom
+        
+        # 2. Volume Arsitek
+        luas_dinding_kotor = total_keliling * 3.5 # Tinggi 3.5m
+        luas_pintu_jendela = luas_dinding_kotor * 0.15 # Asumsi 15% bukaan
+        luas_dinding_net = luas_dinding_kotor - luas_pintu_jendela
+        
+        # TABULASI RAB
+        data_rab = [
+            ["1", "Pekerjaan Struktur (Beton Bertulang)", f"{vol_beton_total:.2f}", "m3", h_beton],
+            ["2", "Pekerjaan Dinding (Bata, Plester, Cat)", f"{luas_dinding_net:.2f}", "m2", h_dinding],
+            ["3", "Pekerjaan Lantai (Keramik)", f"{total_luas:.2f}", "m2", h_lantai],
+            ["4", "Pekerjaan Plafon & Atap", f"{total_luas:.2f}", "m2", h_plafon]
+        ]
+        
+        df_rab = pd.DataFrame(data_rab, columns=["No", "Uraian", "Volume", "Satuan", "Harga Satuan"])
+        df_rab["Volume"] = df_rab["Volume"].astype(float)
+        df_rab["Total Harga"] = df_rab["Volume"] * df_rab["Harga Satuan"]
+        
+        st.dataframe(df_rab.style.format({"Total Harga": "{:,.0f}", "Harga Satuan": "{:,.0f}"}), use_container_width=True)
+        
+        grand_total = df_rab["Total Harga"].sum()
+        st.success(f"### 🏷️ Estimasi Biaya Fisik: Rp {grand_total:,.0f}")
+        st.caption(f"Harga per m2 Bangunan: Rp {grand_total/total_luas:,.0f} /m2")
