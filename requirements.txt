@@ -7,3 +7,4 @@ matplotlib
 numpy 
 streamlit-drawable-canvas 
 scipy
+anastruct
