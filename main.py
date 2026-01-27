@@ -169,7 +169,34 @@ with tabs[3]:
         berat_besi = vol_beton * 150 # Ratio 150 kg/m3
         st.session_state['structure'] = {'vol_beton': vol_beton, 'berat_besi': berat_besi}
 # ... (setelah st.success Rekomen Tulangan)
+        # ... (Kode hitungan SNI sebelumnya) ...
         
+        st.success(f"Rekomen Tulangan: {int(n_bars)} D{dia} (As: {As_req:.0f} mm2)")
+        
+        # Simpan Vol Struktur Atas
+        vol_beton = st.session_state['geo']['L'] * (st.session_state['geo']['b']/1000) * (st.session_state['geo']['h']/1000)
+        berat_besi = vol_beton * 150 
+        st.session_state['structure'] = {'vol_beton': vol_beton, 'berat_besi': berat_besi}
+        
+        # [UPDATED] Download DXF Balok Detail (Potongan & Memanjang)
+        st.write("---")
+        st.markdown("##### 📥 Output Gambar Kerja (Shop Drawing)")
+        
+        params_balok = {
+            'b': st.session_state['geo']['b'],  # mm
+            'h': st.session_state['geo']['h'],  # mm
+            'dia': dia,                         # mm (Diameter Tulangan Utama)
+            'n': n_bars,                        # Jumlah Tulangan Utama
+            'pjg': st.session_state['geo']['L'] # Panjang Balok
+        }
+        
+        dxf_balok = engine_export.create_dxf("BALOK", params_balok)
+        st.download_button(
+            label="📄 Download Detail Balok (Potongan A-A & Memanjang) .dxf",
+            data=dxf_balok,
+            file_name=f"Detail_Balok_{params_balok['b']}x{params_balok['h']}.dxf",
+            mime="application/dxf"
+        )
         # [NEW] Download DXF Balok
         params_balok = {'b': st.session_state['geo']['b'], 'h': st.session_state['geo']['h'], 'dia': dia, 'n': n_bars}
         dxf_balok = engine_export.create_dxf("BALOK", params_balok)
@@ -340,3 +367,4 @@ with tabs[5]:
         )
     with col_dl2:
         st.info("File Excel mencakup: Rekap Biaya (RAB) dan Parameter Desain Teknis.")
+
