@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from io import BytesIO
 
-# --- IMPORT SEMUA MODULE ---
+# --- IMPORT SEMUA MODULE (PASTIKAN 8 FILE INI ADA DI FOLDER SAMA) ---
 import libs_sni as sni
 import libs_ahsp as ahsp
 import libs_bim_importer as bim
@@ -30,6 +31,12 @@ if 'geo' not in st.session_state: st.session_state['geo'] = {'L': 6.0, 'b': 250,
 if 'structure' not in st.session_state: st.session_state['structure'] = {}
 if 'pondasi' not in st.session_state: st.session_state['pondasi'] = {}
 if 'geotech' not in st.session_state: st.session_state['geotech'] = {}
+
+# [NEW] Init State untuk Report Excel Lengkap
+if 'report_struk' not in st.session_state: st.session_state['report_struk'] = {}
+if 'report_baja' not in st.session_state: st.session_state['report_baja'] = {}
+if 'report_gempa' not in st.session_state: st.session_state['report_gempa'] = {}
+if 'report_geo' not in st.session_state: st.session_state['report_geo'] = {}
 
 # --- SIDEBAR (GLOBAL INPUT) ---
 with st.sidebar:
@@ -65,7 +72,7 @@ calc_geo = geo.Geotech_Engine(gamma_tanah, phi_tanah, c_tanah)
 calc_fdn = fdn.Foundation_Engine(sigma_tanah)
 engine_export = exp.Export_Engine()
 
-# --- TABS UTAMA ---
+# --- TABS UTAMA (8 MODUL) ---
 tabs = st.tabs([
     "🏠 Dash", 
     "📂 BIM Import", 
@@ -151,10 +158,12 @@ with tabs[3]:
             q_dl += st.session_state['bim_loads'] / st.session_state['geo']['L']
             
     with c_s2:
+        # Hitung SNI
         q_u = sni.SNI_Load_1727.komb_pembebanan(q_dl, q_ll)
         Mu = (1/8) * q_u * (st.session_state['geo']['L']**2)
+        Vu = 0.5 * q_u * st.session_state['geo']['L'] # [NEW] Hitung Geser untuk Report
         
-        st.metric("Momen Ultimate (Mu)", f"{Mu:.2f} kNm", f"Qu: {q_u:.2f} kN/m")
+        st.metric("Momen Ultimate (Mu)", f"{Mu:.2f} kNm", f"Geser Vu: {Vu:.2f} kN")
         
         As_req = calc_sni.kebutuhan_tulangan(Mu, st.session_state['geo']['b'], st.session_state['geo']['h'], 40)
         dia = st.selectbox("Diameter Tulangan", [13, 16, 19, 22])
@@ -162,9 +171,17 @@ with tabs[3]:
         
         st.success(f"Rekomen Tulangan: {int(n_bars)} D{dia} (As: {As_req:.0f} mm2)")
         
+        # Simpan Vol Struktur Atas
         vol_beton = st.session_state['geo']['L'] * (st.session_state['geo']['b']/1000) * (st.session_state['geo']['h']/1000)
         berat_besi = vol_beton * 150 
         st.session_state['structure'] = {'vol_beton': vol_beton, 'berat_besi': berat_besi}
+        
+        # [NEW] Simpan Data Report Lengkap
+        st.session_state['report_struk'] = {
+            'Mu': round(Mu, 2), 'Vu': round(Vu, 2), 'Qu': round(q_u, 2), 
+            'As_req': round(As_req, 2), 'Tulangan': f"{int(n_bars)} D{dia}",
+            'Dimensi': f"{st.session_state['geo']['b']}x{st.session_state['geo']['h']}"
+        }
         
         st.write("---")
         params_balok = {'b': st.session_state['geo']['b'], 'h': st.session_state['geo']['h'], 'dia': dia, 'n': n_bars, 'pjg': st.session_state['geo']['L']}
@@ -172,7 +189,7 @@ with tabs[3]:
         st.download_button("📥 Download Shop Drawing Balok (.dxf)", dxf_balok, "Detail_Balok.dxf")
 
 # ==============================================================================
-# TAB 5: BAJA & ATAP (Fixed Logic)
+# TAB 5: BAJA & ATAP (Updated with Report)
 # ==============================================================================
 with tabs[4]:
     st.markdown('<p class="sub_header">Struktur Baja (WF) & Baja Ringan</p>', unsafe_allow_html=True)
@@ -195,9 +212,7 @@ with tabs[4]:
             }
             pilih_wf = st.selectbox("Pilih Profil WF", list(db_wf.keys()))
             
-            # --- BAGIAN YG DIPERBAIKI ---
             engine_baja = steel.SNI_Steel_1729(fy_baja, 410)
-            # Pass dictionary profil, bukan cuma Zx
             res_baja = engine_baja.cek_balok_lentur(Mu_baja, db_wf[pilih_wf], Lb_baja)
             
             if res_baja['Ratio'] <= 1.0:
@@ -205,6 +220,12 @@ with tabs[4]:
             else:
                 st.error(f"❌ {pilih_wf} GAGAL (Ratio: {res_baja['Ratio']:.2f})")
             st.caption(res_baja['Keterangan'])
+            
+            # [NEW] Simpan Data Report
+            st.session_state['report_baja'] = {
+                'Profil': pilih_wf, 'Mu': Mu_baja, 'Phi_Mn': round(res_baja['Phi_Mn'], 2), 
+                'Ratio': round(res_baja['Ratio'], 3), 'Status': res_baja['Status']
+            }
 
     with sub_b2:
         st.info("Kalkulator Kuda-Kuda Baja Ringan (SNI 7971)")
@@ -220,7 +241,7 @@ with tabs[4]:
         c_r3.metric("Sekrup (Box)", res_ringan['Sekrup (Box)'])
 
 # ==============================================================================
-# TAB 6: ANALISA GEMPA
+# TAB 6: ANALISA GEMPA (Updated with Report)
 # ==============================================================================
 with tabs[5]:
     st.markdown('<p class="sub_header">Analisa Beban Gempa (SNI 1726:2019)</p>', unsafe_allow_html=True)
@@ -239,9 +260,15 @@ with tabs[5]:
         st.divider()
         st.metric("Gaya Geser Dasar (V)", f"{V_gempa:.2f} kN")
         st.caption(f"Sds={sds:.2f}, Sd1={sd1:.2f}")
+        
+        # [NEW] Simpan Data Report
+        st.session_state['report_gempa'] = {
+            'V_gempa': round(V_gempa, 2), 'Sds': round(sds, 3), 'Sd1': round(sd1, 3), 
+            'R': R_faktor, 'Site': site_class
+        }
 
 # ==============================================================================
-# TAB 7: GEOTEKNIK & PONDASI
+# TAB 7: GEOTEKNIK & PONDASI (Updated with Report)
 # ==============================================================================
 with tabs[6]:
     st.markdown('<p class="sub_header">Analisa Bawah (Geoteknik & Pondasi)</p>', unsafe_allow_html=True)
@@ -294,9 +321,16 @@ with tabs[6]:
             'vol_talud': res_talud['Vol_Per_M'] * 20, # Asumsi 20m panjang
             'vol_pile': res_pile['Vol_Beton'] * 10    # Asumsi 10 titik
         }
+        
+        # [NEW] Simpan Report Geo
+        st.session_state['report_geo'] = {
+            'Talud_SF': f"{res_talud['SF_Geser']:.2f}", 
+            'Pile_Qall': f"{res_pile['Q_allow']:.2f}",
+            'Dimensi_Pile': f"D{dia_pile} L{depth}m"
+        }
 
 # ==============================================================================
-# TAB 8: RAB FINAL
+# TAB 8: RAB FINAL & REPORTING EXCEL
 # ==============================================================================
 with tabs[7]:
     st.markdown('<p class="sub_header">Rencana Anggaran Biaya (RAB) Terintegrasi</p>', unsafe_allow_html=True)
@@ -344,11 +378,64 @@ with tabs[7]:
     df_show['Tot'] = df_show['Tot'].apply(fmt)
     
     st.dataframe(df_show, use_container_width=True)
-    
     grand_total = df_rab['Tot'].sum()
     st.success(f"### GRAND TOTAL PROYEK: Rp {grand_total:,.0f}")
     
     st.divider()
-    session_summary = {'fc': fc_in, 'fy': fy_in, 'b': st.session_state['geo']['b'], 'h': st.session_state['geo']['h'], 'sigma': sigma_tanah}
-    excel_file = engine_export.create_excel_report(df_rab, session_summary)
-    st.download_button(label="📊 Download Laporan RAB (.xlsx)", data=excel_file, file_name="RAB_IndoBIM.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.markdown("### 📤 Download Laporan Lengkap")
+    
+    # [NEW] ENGINE EXCEL 5 SHEET
+    def generate_excel():
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # Sheet 1: Data Input
+            df_in = pd.DataFrame({
+                'Parameter': ['Mutu Beton (fc)', 'Mutu Baja (fy)', 'Berat Isi Tanah', 'Sudut Geser', 'Kohesi', 'Daya Dukung Tanah', 'Panjang Balok', 'Beban DL', 'Beban LL'],
+                'Nilai': [fc_in, fy_in, gamma_tanah, phi_tanah, c_tanah, sigma_tanah, st.session_state['geo']['L'], q_dl, q_ll],
+                'Satuan': ['MPa', 'MPa', 'kN/m3', 'deg', 'kN/m2', 'kN/m2', 'm', 'kN/m', 'kN/m']
+            })
+            df_in.to_excel(writer, sheet_name='1. Input Data', index=False)
+            
+            # Sheet 2: Standar & Acuan
+            df_std = pd.DataFrame({
+                'Item': ['Beton', 'Baja', 'Gempa', 'Geoteknik', 'Biaya'],
+                'Acuan': ['SNI 2847:2019', 'SNI 1729:2015', 'SNI 1726:2019', 'SNI 8460:2017 (Rankine/Reese)', 'SE PUPR No. 182/2025']
+            })
+            df_std.to_excel(writer, sheet_name='2. Standar', index=False)
+            
+            # Sheet 3: Output Gaya Dalam (Forces)
+            d_struk = st.session_state.get('report_struk', {})
+            d_baja = st.session_state.get('report_baja', {})
+            d_gempa = st.session_state.get('report_gempa', {})
+            
+            df_force = pd.DataFrame({
+                'Elemen': ['Balok Beton', 'Balok Beton', 'Gempa Dasar (V)', 'Balok Baja'],
+                'Jenis Gaya': ['Momen Ultimate (Mu)', 'Gaya Geser (Vu)', 'Base Shear', 'Momen Beban'],
+                'Nilai': [d_struk.get('Mu',0), d_struk.get('Vu',0), d_gempa.get('V_gempa',0), d_baja.get('Mu',0)],
+                'Satuan': ['kNm', 'kN', 'kN', 'kNm']
+            })
+            df_force.to_excel(writer, sheet_name='3. Gaya Dalam', index=False)
+            
+            # Sheet 4: Hasil Desain (Design Ratio)
+            d_geo = st.session_state.get('report_geo', {})
+            df_des = pd.DataFrame({
+                'Elemen': ['Balok Beton', 'Balok Baja', 'Talud Lereng', 'Bore Pile'],
+                'Parameter Cek': ['Tulangan Perlu', 'Ratio Kapasitas', 'Safety Factor (Geser)', 'Daya Dukung Izin'],
+                'Hasil': [d_struk.get('Tulangan','-'), d_baja.get('Ratio','-'), d_geo.get('Talud_SF','-'), d_geo.get('Pile_Qall','-')],
+                'Status': ['OK', d_baja.get('Status','-'), 'Lihat Tab', 'Lihat Tab']
+            })
+            df_des.to_excel(writer, sheet_name='4. Hasil Desain', index=False)
+            
+            # Sheet 5: RAB
+            df_rab.to_excel(writer, sheet_name='5. RAB Final', index=False)
+            
+        return output.getvalue()
+
+    excel_data = generate_excel()
+    st.download_button(
+        label="📊 Download Excel Report (5 Sheet)",
+        data=excel_data,
+        file_name="Laporan_Lengkap_IndoBIM.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    st.caption("Berisi: Input Data, Standar SNI, Rekap Gaya Dalam, Hasil Desain, dan RAB.")
