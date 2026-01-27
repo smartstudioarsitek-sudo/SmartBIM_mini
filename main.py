@@ -49,9 +49,10 @@ calc_struktur = sni.SNI_Concrete_2847(fc_in, fy_in)
 calc_biaya = ahsp.AHSP_Engine()
 
 # --- TABS NAVIGASI ---
-tab_home, tab_model, tab_analisa, tab_rab = st.tabs([
-    "🏠 Dashboard", "📐 Modeling (Arsitek)", "⚙️ Analisa (Struktur)", "💰 RAB (AHSP)"
+tab_home, tab_import, tab_model, tab_analisa, tab_rab = st.tabs([
+    "🏠 Dashboard", "📂 Import Revit/IFC", "📐 Modeling (Arsitek)", "⚙️ Analisa (Struktur)", "💰 RAB" (AHSP)"
 ])
+
 
 # 1. DASHBOARD
 with tab_home:
@@ -62,8 +63,56 @@ with tab_home:
     col1.metric("Mutu Beton", f"K-{int(fc_in * 10 / 0.83)}", f"f'c {fc_in} MPa")
     col2.metric("Tegangan Leleh", f"U-{int(fy_in/10)}", f"fy {fy_in} MPa")
     col3.metric("Wilayah Gempa", "Medan (D)", "Ss=1.0g (Asumsi)")
+# 2. DASHBOARD
+with tab_import:
+    st.markdown('<p class="sub_header">Import Model dari Revit (via IFC)</p>', unsafe_allow_html=True)
+    st.info("Di Revit: File > Export > IFC. Lalu upload file .ifc tersebut di sini.")
+    
+    uploaded_ifc = st.file_uploader("Upload File IFC", type=["ifc"])
+    
+    if uploaded_ifc is not None:
+        try:
+            with st.spinner("Membaca Geometri & Parameter IFC..."):
+                # Panggil Engine IFC
+                engine_ifc = bim.IFC_Parser_Engine(uploaded_ifc)
+                
+                # 1. Parse Struktur
+                df_struktur = engine_ifc.parse_structure()
+                st.success(f"Berhasil membaca {len(df_struktur)} elemen struktur!")
+                
+                # Tampilkan Preview Data Struktur
+                st.dataframe(df_struktur.head())
+                
+                # Visualisasi Sebaran Titik Struktur (Preview Denah)
+                fig, ax = plt.subplots()
+                ax.scatter(df_struktur['X'], df_struktur['Y'], c='blue', marker='s')
+                ax.set_title("Preview Titik Kolom/Balok dari Revit")
+                st.pyplot(fig)
+                
+                st.divider()
+                
+                # 2. Parse Arsitek/MEP jadi Beban
+                loads = engine_ifc.calculate_architectural_loads()
+                
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    st.metric("Beban Dinding (Arsitek)", f"{loads['Total Beban Dinding (kN)']} kN")
+                with col_b2:
+                    st.metric("Beban MEP (Pipa/Duct)", f"{loads['Estimasi Beban MEP (kN)']} kN")
+                
+                st.warning(f"Total Beban Mati Tambahan (SDL) yang akan diaplikasikan: **{loads['Total Load Tambahan (kN)']} kN**")
+                
+                # Tombol Simpan ke Session State
+                if st.button("📥 Gunakan Data Ini ke Analisa"):
+                    st.session_state['imported_loads'] = loads['Total Load Tambahan (kN)']
+                    st.session_state['imported_geometry'] = df_struktur
+                    st.toast("Data Revit berhasil masuk ke Engine Analisa!", icon="✅")
+                    
+        except Exception as e:
+            st.error(f"Gagal membaca file IFC: {e}")
+            st.caption("Pastikan file IFC valid export dari Revit 2020+")
 
-# 2. MODELING (Simple Grid)
+# 3. MODELING (Simple Grid)
 with tab_model:
     st.markdown('<p class="sub_header">Input Geometri Grid</p>', unsafe_allow_html=True)
     c1, c2 = st.columns([1, 2])
@@ -88,7 +137,7 @@ with tab_model:
         # Simpan data ke session state agar bisa dibaca tab lain
         st.session_state['geo'] = {'L': pjg_balok, 'b': b_balok, 'h': h_balok}
 
-# 3. ANALISA STRUKTUR
+# 4. ANALISA STRUKTUR
 with tab_analisa:
     st.markdown('<p class="sub_header">Analisa Kekuatan & Kebutuhan Besi</p>', unsafe_allow_html=True)
     
@@ -125,7 +174,7 @@ with tab_analisa:
     # Simpan hasil untuk RAB
     st.session_state['structure'] = {'vol_beton': L * b/1000 * h/1000, 'berat_besi': (As_req * L * 7850 / 1e6) * 1.5} # 1.5 factor sengkang dll
 
-# 4. RAB / AHSP
+# 5. RAB / AHSP
 with tab_rab:
     st.markdown('<p class="sub_header">Rencana Anggaran Biaya (RAB)</p>', unsafe_allow_html=True)
     
@@ -160,3 +209,4 @@ with tab_rab:
     else:
 
         st.warning("Silakan lakukan Analisa Struktur terlebih dahulu.")
+
