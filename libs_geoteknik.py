@@ -58,7 +58,7 @@ class Geotech_Engine:
             "SF_Guling": SF_Guling,
             "SF_Geser": SF_Geser,
             "Vol_Per_M": (b_atas + b_bawah)/2 * H,
-            "Coords": coords,
+            "Coords": coords, # Pastikan 'C' Besar agar konsisten dengan main.py
             "Status": "AMAN" if SF_Guling >= 1.5 and SF_Geser >= 1.5 else "TIDAK AMAN"
         }
 
@@ -106,7 +106,8 @@ class Geotech_Engine:
         
         if type_str == "TALUD":
             # Draw Polyline of Talud
-            coords = params['coords']
+            # FIX: Gunakan 'Coords' (C Besar) sesuai return dict diatas
+            coords = params['Coords'] 
             for i in range(len(coords)-1):
                 p1 = coords[i]
                 p2 = coords[i+1]
