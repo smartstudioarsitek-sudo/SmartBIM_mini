@@ -9,6 +9,7 @@ import libs_ahsp as ahsp
 import libs_bim_importer as bim
 import libs_pondasi as fdn
 import libs_geoteknik as geo
+import libs_export as exp # Import modul baru kita
 
 # --- CONFIG ---
 st.set_page_config(page_title="IndoBIM Ultimate Enterprise", layout="wide", page_icon="🏗️")
@@ -60,6 +61,7 @@ calc_sni = sni.SNI_Concrete_2847(fc_in, fy_in)
 calc_biaya = ahsp.AHSP_Engine()
 calc_geo = geo.Geotech_Engine(gamma_tanah, phi_tanah, c_tanah)
 calc_fdn = fdn.Foundation_Engine(sigma_tanah)
+engine_export = exp.Export_Engine()
 
 # --- TABS UTAMA ---
 tabs = st.tabs([
@@ -166,7 +168,12 @@ with tabs[3]:
         vol_beton = st.session_state['geo']['L'] * (st.session_state['geo']['b']/1000) * (st.session_state['geo']['h']/1000)
         berat_besi = vol_beton * 150 # Ratio 150 kg/m3
         st.session_state['structure'] = {'vol_beton': vol_beton, 'berat_besi': berat_besi}
-
+# ... (setelah st.success Rekomen Tulangan)
+        
+        # [NEW] Download DXF Balok
+        params_balok = {'b': st.session_state['geo']['b'], 'h': st.session_state['geo']['h'], 'dia': dia, 'n': n_bars}
+        dxf_balok = engine_export.create_dxf("BALOK", params_balok)
+        st.download_button("📥 Download Shop Drawing Balok (.dxf)", dxf_balok, "Detail_Balok.dxf")
 # ==============================================================================
 # TAB 5: GEOTEKNIK & PONDASI - Fitur Baru + Fitur Pondasi Lama
 # ==============================================================================
@@ -187,7 +194,12 @@ with tabs[4]:
             res_fp = calc_fdn.hitung_footplate(Pu, B_fp, B_fp, 300)
             if "AMAN" in res_fp['status']: st.success(res_fp['status'])
             else: st.error(res_fp['status'])
+            # ... (setelah hitung Cakar Ayam)
             
+            # [NEW] Download DXF Footplate
+            params_fp = {'B': B_fp}
+            dxf_fp = engine_export.create_dxf("FOOTPLATE", params_fp)
+            st.download_button("📥 Shop Drawing Footplate (.dxf)", dxf_fp, "Denah_Pondasi.dxf")
         with c_fp2:
             st.markdown("**2. Batu Kali (Menerus)**")
             L_bk = st.number_input("Panjang Total (m')", 10.0, 200.0, 50.0)
@@ -212,7 +224,12 @@ with tabs[4]:
             
             if res_talud['Status'] == "AMAN": st.success(f"Talud AMAN (SF Geser: {res_talud['SF_Geser']:.2f})")
             else: st.error("Talud BAHAYA")
+# ... (setelah hitung Talud)
             
+            # [NEW] Download DXF Talud
+            params_talud = {'H': H_talud, 'Ba': 0.4, 'Bb': 1.5} # Sesuaikan dgn input user
+            dxf_talud = engine_export.create_dxf("TALUD", params_talud)
+            st.download_button("📥 Shop Drawing Talud (.dxf)", dxf_talud, "Potongan_Talud.dxf")            
             # Download DXF
             dxf = calc_geo.generate_shop_drawing_dxf("TALUD", res_talud)
             st.download_button("📥 Shop Drawing (.dxf)", dxf, "talud.dxf")
@@ -296,3 +313,30 @@ with tabs[5]:
     
     grand_total = df_rab['Tot'].sum()
     st.success(f"### GRAND TOTAL PROYEK: Rp {grand_total:,.0f}")
+
+# ... (setelah tabel RAB muncul)
+    
+    st.divider()
+    st.markdown("### 📤 Export Laporan Proyek")
+    
+    # Siapkan Data untuk Excel
+    session_summary = {
+        'fc': fc_in, 'fy': fy_in, 
+        'b': st.session_state['geo']['b'], 
+        'h': st.session_state['geo']['h'],
+        'sigma': sigma_tanah
+    }
+    
+    # Generate Excel
+    excel_file = engine_export.create_excel_report(df_rab, session_summary)
+    
+    col_dl1, col_dl2 = st.columns(2)
+    with col_dl1:
+        st.download_button(
+            label="📊 Download Laporan RAB & Teknis (.xlsx)",
+            data=excel_file,
+            file_name="Laporan_Proyek_IndoBIM.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    with col_dl2:
+        st.info("File Excel mencakup: Rekap Biaya (RAB) dan Parameter Desain Teknis.")
