@@ -45,7 +45,7 @@ class AHSP_Engine:
                 "upah": {"Pekerja": 0.07, "Tukang": 0.07, "Mandor": 0.004}
             }
         }
-
+# ...
     def hitung_hsp(self, kode_analisa, harga_bahan_dasar, harga_upah_dasar):
         """
         Menghitung Harga Satuan Pekerjaan (HSP) berdasarkan input harga dasar user.
@@ -80,3 +80,4 @@ class AHSP_Engine:
             
 
         return total_bahan + total_upah
+
