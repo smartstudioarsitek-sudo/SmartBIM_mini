@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import libs_sni as sni
 import libs_ahsp as ahsp
 import libs_bim_importer as bim # Import modul baru
+import libs_pondasi as fdn # Import modul pondasi
 
 # --- CONFIG ---
 st.set_page_config(page_title="IndoBIM Pro", layout="wide", page_icon="🇮🇩")
@@ -213,5 +214,6 @@ with tab_rab:
     else:
 
         st.warning("Silakan lakukan Analisa Struktur terlebih dahulu.")
+
 
 
