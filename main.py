@@ -4,6 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import libs_baja as steel   # Modul baru
 import libs_gempa as quake  # Modul baru
+import libs_baja as steel
+import libs_gempa as quake
 
 # --- IMPORT SEMUA MODULE (PASTIKAN 5 FILE INI ADA) ---
 import libs_sni as sni
@@ -324,38 +326,81 @@ with tabs[4]:
         c_r1.metric("Kanal C (Batang)", res_ringan['Kanal C (btg)'])
         c_r2.metric("Reng (Batang)", res_ringan['Reng (btg)'])
         c_r3.metric("Sekrup (Pcs)", res_ringan['Sekrup (pcs)'])
+# --- IMPORT ---
+import libs_baja as steel
+import libs_gempa as quake
 
-# ==============================================================================
-# TAB 6: RAB FINAL (GABUNGAN SEMUA)
-# ==============================================================================
-# ... (Di dalam blok tab Gempa)
-with tabs[5]:
-    st.markdown('<p class="sub_header">Analisa Beban Gempa (SNI 1726:2019)</p>', unsafe_allow_html=True)
+# ... (Kode Setup Lainnya) ...
+
+# === TAB 6: BAJA & GEMPA ===
+with tabs[5]: # Asumsi ini tab baru
+    st.markdown('<p class="sub_header">Analisa Baja & Beban Gempa</p>', unsafe_allow_html=True)
     
-    col_g1, col_g2 = st.columns(2)
-    with col_g1:
-        st.write("Input Parameter Peta Gempa")
-        Ss = st.number_input("Ss (Short Period)", 0.0, 2.0, 0.8)
-        S1 = st.number_input("S1 (1-Sec Period)", 0.0, 1.5, 0.4)
-        site_class = st.selectbox("Kelas Situs Tanah", ["SE", "SD", "SC"], index=1)
-        
-    with col_g2:
-        st.write("Input Struktur")
-        W_total = st.number_input("Berat Total Bangunan (kN)", 100.0, 50000.0, 2000.0)
-        R_faktor = st.number_input("Faktor Reduksi Gempa (R)", 3.0, 8.0, 8.0, help="8 untuk SRPMK")
-        
-        # Hitung
-        engine_gempa = quake.SNI_Gempa_1726(Ss, S1, site_class)
-        V_gempa, params = engine_gempa.hitung_gaya_geser_dasar(W_total, R_faktor)
-        
-        st.divider()
-        st.metric("Gaya Geser Dasar (Base Shear V)", f"{V_gempa:.2f} kN")
-        st.caption(f"Parameter Desain: Sds={params['Sds']:.2f}, Sd1={params['Sd1']:.2f}")
-        
-        if V_gempa > 0:
-            st.success("✅ Beban Gempa Statik Ekuivalen berhasil dihitung.")
+    sub_1, sub_2, sub_3 = st.tabs(["A. Balok WF", "B. Baja Ringan", "C. Beban Gempa"])
+    
+    # 1. BALOK BAJA WF
+    with sub_1:
+        st.info("Cek Kekuatan Balok WF (Lentur)")
+        c1, c2 = st.columns(2)
+        with c1:
+            Mu_baja = st.number_input("Momen Mu (kNm)", 10.0, 500.0, 50.0)
+            Lb_baja = st.number_input("Panjang Bentang (m)", 1.0, 12.0, 4.0)
+            fy_baja = st.number_input("Mutu Baja Fy (MPa)", 240, 410, 250)
+        with c2:
+            # Database Profil Simple
+            db_wf = {
+                "WF 150x75": {'Zx': 88.8},
+                "WF 200x100": {'Zx': 213},
+                "WF 250x125": {'Zx': 324},
+                "WF 300x150": {'Zx': 481},
+                "WF 400x200": {'Zx': 1190}
+            }
+            pilih_wf = st.selectbox("Pilih Profil", list(db_wf.keys()))
+            
+            # Hitung
+            eng_baja = steel.SNI_Steel_1729(fy_baja, 410)
+            res_baja = eng_baja.cek_balok_lentur(Mu_baja, db_wf[pilih_wf], Lb_baja)
+            
+            if res_baja['Ratio'] <= 1.0:
+                st.success(f"✅ {pilih_wf} AMAN (Ratio {res_baja['Ratio']:.2f})")
+            else:
+                st.error(f"❌ {pilih_wf} GAGAL (Ratio {res_baja['Ratio']:.2f})")
+            st.caption(res_baja['Keterangan'])
 
-with tabs[5]:
+    # 2. BAJA RINGAN
+    with sub_2:
+        st.info("Estimasi Material Atap")
+        luas_atap = st.number_input("Luas Atap Miring (m2)", 20.0, 500.0, 100.0)
+        jenis_atap = st.radio("Penutup Atap", ["Metal Pasir (Ringan)", "Genteng Keramik (Berat)"])
+        
+        calc_truss = steel.Baja_Ringan_Calc()
+        mat_atap = calc_truss.hitung_kebutuhan_atap(luas_atap, jenis_atap)
+        
+        c_a, c_b, c_c = st.columns(3)
+        c_a.metric("Kanal C (Btg)", mat_atap['C75.75 (Btg)'])
+        c_b.metric("Reng (Btg)", mat_atap['Reng 30.45 (Btg)'])
+        c_c.metric("Sekrup (Box)", mat_atap['Sekrup (Box)'])
+
+    # 3. GEMPA
+    with sub_3:
+        st.info("Hitung Gaya Geser Dasar (V) SNI 1726")
+        W_total = st.number_input("Berat Total Bangunan (kN)", 100.0, 10000.0, 2000.0)
+        R_gempa = st.number_input("Faktor R (8=SRPMK, 3=Dinding)", 3.0, 8.0, 8.0)
+        ss_in = st.number_input("Ss (Peta Gempa)", 0.0, 2.0, 0.7)
+        s1_in = st.number_input("S1 (Peta Gempa)", 0.0, 1.0, 0.3)
+        site_in = st.selectbox("Kelas Tanah", ["SD", "SE", "SC"])
+        
+        eng_gempa = quake.SNI_Gempa_1726(ss_in, s1_in, site_in)
+        V_gempa, sds, sd1 = eng_gempa.hitung_base_shear(W_total, R_gempa)
+        
+        st.metric("Gaya Geser Dasar (V)", f"{V_gempa:.1f} kN")
+        st.caption(f"Parameter Respon Spektrum: SDS={sds:.2f}, SD1={sd1:.2f}")
+
+
+# ==============================================================================
+# TAB 7: RAB FINAL (GABUNGAN SEMUA)
+# ==============================================================================
+with tabs[6]:
     st.markdown('<p class="sub_header">Rencana Anggaran Biaya (RAB) Terintegrasi</p>', unsafe_allow_html=True)
     
     # Collect Data
@@ -440,5 +485,6 @@ with tabs[5]:
         )
     with col_dl2:
         st.info("File Excel mencakup: Rekap Biaya (RAB) dan Parameter Desain Teknis.")
+
 
 
