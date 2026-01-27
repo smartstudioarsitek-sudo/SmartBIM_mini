@@ -28,6 +28,22 @@ class AHSP_Engine:
                 "bahan": {"Besi Beton (kg)": 10.5, "Kawat Beton (kg)": 0.15}, # 10.5 inc waste
                 "upah": {"Pekerja": 0.07, "Tukang": 0.07, "Mandor": 0.004}
             }
+       # ... (kode sebelumnya)
+            "pasangan_batu_kali": {
+                "desc": "Pasangan Batu Kali 1:4 (Talud)",
+                "bahan": {"Batu Kali (m3)": 1.2, "Semen (kg)": 163, "Pasir (m3)": 0.52},
+                "upah": {"Pekerja": 1.5, "Tukang": 0.75, "Mandor": 0.075}
+            },
+            "bore_pile_k300": {
+                "desc": "Pengecoran Bore Pile K-300 (Site Mix/Ready Mix)",
+                "bahan": {"Beton K300 (m3)": 1.05}, # Waste 5%
+                "upah": {"Pekerja": 2.0, "Tukang": 0.5, "Mandor": 0.1} # Upah cor manual/alat bantu
+            },
+            "penulangan_pile": {
+                "desc": "Pembesian Spiral & Utama Pile",
+                "bahan": {"Besi Beton (kg)": 10.5, "Kawat Beton (kg)": 0.2},
+                "upah": {"Pekerja": 0.07, "Tukang": 0.07, "Mandor": 0.004}
+            }
         }
 
     def hitung_hsp(self, kode_analisa, harga_bahan_dasar, harga_upah_dasar):
@@ -62,4 +78,5 @@ class AHSP_Engine:
             h_upah = harga_upah_dasar.get(item_lower, 0)
             total_upah += koef * h_upah
             
+
         return total_bahan + total_upah
