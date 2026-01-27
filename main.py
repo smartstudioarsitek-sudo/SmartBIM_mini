@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 # --- IMPORT MODULE LOKAL ---
 import libs_sni as sni
 import libs_ahsp as ahsp
+import libs_bim_importer as bim # Import modul baru
 
 # --- CONFIG ---
 st.set_page_config(page_title="IndoBIM Pro", layout="wide", page_icon="🇮🇩")
@@ -157,4 +158,5 @@ with tab_rab:
         st.success(f"### Total Biaya Balok: Rp {total_biaya:,.0f}")
         
     else:
+
         st.warning("Silakan lakukan Analisa Struktur terlebih dahulu.")
