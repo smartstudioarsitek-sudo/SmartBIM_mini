@@ -27,8 +27,7 @@ class AHSP_Engine:
                 "desc": "Pembesian 10 kg dengan Besi Polos/Ulir",
                 "bahan": {"Besi Beton (kg)": 10.5, "Kawat Beton (kg)": 0.15}, # 10.5 inc waste
                 "upah": {"Pekerja": 0.07, "Tukang": 0.07, "Mandor": 0.004}
-            }
-       # ... (kode sebelumnya)
+            }, # <--- KOMA DITAMBAHKAN DISINI
             "pasangan_batu_kali": {
                 "desc": "Pasangan Batu Kali 1:4 (Talud)",
                 "bahan": {"Batu Kali (m3)": 1.2, "Semen (kg)": 163, "Pasir (m3)": 0.52},
@@ -45,7 +44,7 @@ class AHSP_Engine:
                 "upah": {"Pekerja": 0.07, "Tukang": 0.07, "Mandor": 0.004}
             }
         }
-# ...
+
     def hitung_hsp(self, kode_analisa, harga_bahan_dasar, harga_upah_dasar):
         """
         Menghitung Harga Satuan Pekerjaan (HSP) berdasarkan input harga dasar user.
@@ -64,11 +63,13 @@ class AHSP_Engine:
             
             # Logic pencocokan harga (Bisa dipercanggih)
             h_satuan = 0
-            if "semen" in key_clean: h_satuan = harga_bahan_dasar['semen']
-            elif "pasir" in key_clean: h_satuan = harga_bahan_dasar['pasir']
-            elif "split" in key_clean: h_satuan = harga_bahan_dasar['split']
-            elif "kayu" in key_clean: h_satuan = harga_bahan_dasar['kayu']
-            elif "besi" in key_clean: h_satuan = harga_bahan_dasar['besi']
+            if "semen" in key_clean: h_satuan = harga_bahan_dasar.get('semen', 0)
+            elif "pasir" in key_clean: h_satuan = harga_bahan_dasar.get('pasir', 0)
+            elif "split" in key_clean: h_satuan = harga_bahan_dasar.get('split', 0)
+            elif "kayu" in key_clean: h_satuan = harga_bahan_dasar.get('kayu', 0)
+            elif "besi" in key_clean: h_satuan = harga_bahan_dasar.get('besi', 0)
+            elif "batu kali" in key_clean: h_satuan = harga_bahan_dasar.get('batu kali', 0)
+            elif "beton" in key_clean: h_satuan = harga_bahan_dasar.get('beton k300', 0) # Fallback for readymix
             
             total_bahan += koef * h_satuan
             
@@ -78,6 +79,4 @@ class AHSP_Engine:
             h_upah = harga_upah_dasar.get(item_lower, 0)
             total_upah += koef * h_upah
             
-
         return total_bahan + total_upah
-
