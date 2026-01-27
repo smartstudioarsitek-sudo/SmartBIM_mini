@@ -50,7 +50,11 @@ calc_biaya = ahsp.AHSP_Engine()
 
 # --- TABS NAVIGASI ---
 tab_home, tab_import, tab_model, tab_analisa, tab_rab = st.tabs([
-    "🏠 Dashboard", "📂 Import Revit/IFC", "📐 Modeling (Arsitek)", "⚙️ Analisa (Struktur)", "💰 RAB" (AHSP)"
+    "🏠 Dashboard", 
+    "📂 Import Revit/IFC", 
+    "📐 Modeling (Arsitek)", 
+    "⚙️ Analisa (Struktur)", 
+    "💰 RAB (AHSP)" 
 ])
 
 
@@ -209,4 +213,5 @@ with tab_rab:
     else:
 
         st.warning("Silakan lakukan Analisa Struktur terlebih dahulu.")
+
 
