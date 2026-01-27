@@ -8,3 +8,5 @@ numpy
 streamlit-drawable-canvas 
 scipy
 anastruct
+ifcopenshell
+
