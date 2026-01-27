@@ -50,14 +50,14 @@ calc_struktur = sni.SNI_Concrete_2847(fc_in, fy_in)
 calc_biaya = ahsp.AHSP_Engine()
 
 # --- TABS NAVIGASI ---
-tab_home, tab_import, tab_model, tab_analisa, tab_rab = st.tabs([
+tab_home, tab_import, tab_model, tab_analisa, tab_pondasi, tab_rab = st.tabs([
     "🏠 Dashboard", 
     "📂 Import Revit/IFC", 
     "📐 Modeling (Arsitek)", 
     "⚙️ Analisa (Struktur)", 
+    "uD83EuDDF1 Pondasi (Bawah)", # Tab Baru
     "💰 RAB (AHSP)" 
 ])
-
 
 # 1. DASHBOARD
 with tab_home:
@@ -178,6 +178,51 @@ with tab_analisa:
     
     # Simpan hasil untuk RAB
     st.session_state['structure'] = {'vol_beton': L * b/1000 * h/1000, 'berat_besi': (As_req * L * 7850 / 1e6) * 1.5} # 1.5 factor sengkang dll
+# --- LOGIKA TAB PONDASI ---
+with tab_pondasi:
+    st.markdown('<p class="sub_header">Perencanaan Struktur Bawah (Pondasi)</p>', unsafe_allow_html=True)
+    
+    col_p1, col_p2 = st.columns(2)
+    
+    with col_p1:
+        st.info("Parameter Tanah")
+        sigma = st.number_input("Daya Dukung Tanah (kN/m2)", 50.0, 300.0, 150.0)
+        engine_pondasi = fdn.Foundation_Engine(sigma)
+        
+        st.divider()
+        st.markdown("#### A. Cakar Ayam (Footplate)")
+        fp_beban = st.number_input("Beban Aksial Kolom (Pu) - kN", 10.0, 500.0, 150.0)
+        fp_L = st.number_input("Panjang Pondasi (m)", 0.6, 3.0, 1.0)
+        fp_B = st.number_input("Lebar Pondasi (m)", 0.6, 3.0, 1.0)
+        fp_jumlah = st.number_input("Jumlah Titik Pondasi", 1, 100, 12)
+        
+        # Hitung Footplate
+        res_fp = engine_pondasi.hitung_footplate(fp_beban, fp_B, fp_L, 300)
+        
+        if "AMAN" in res_fp['status']:
+            st.success(f"Status: {res_fp['status']} (SF: {res_fp['ratio_safety']:.2f})")
+        else:
+            st.error(f"Status: {res_fp['status']}")
+            
+    with col_p2:
+        st.markdown("#### B. Batu Kali (Menerus)")
+        bk_panjang = st.number_input("Total Panjang Pondasi Menerus (m)", 10.0, 500.0, 60.0)
+        bk_la = st.number_input("Lebar Atas (m)", 0.2, 0.5, 0.3)
+        bk_lb = st.number_input("Lebar Bawah (m)", 0.4, 1.0, 0.6)
+        bk_t = st.number_input("Tinggi (m)", 0.5, 2.0, 0.8)
+        
+        # Hitung Batu Kali
+        res_bk = engine_pondasi.hitung_batu_kali(bk_panjang, bk_la, bk_lb, bk_t)
+        
+        st.metric("Volume Pasangan Batu", f"{res_bk['vol_pasangan']:.2f} m3")
+        
+    # Simpan ke Session State untuk RAB
+    st.session_state['pondasi'] = {
+        'fp_beton': res_fp['vol_beton'] * fp_jumlah,
+        'fp_besi': res_fp['berat_besi'] * fp_jumlah,
+        'bk_batu': res_bk['vol_pasangan'],
+        'galian_total': (res_fp['vol_galian'] * fp_jumlah) + res_bk['vol_galian']
+    }
 
 # 5. RAB / AHSP
 with tab_rab:
@@ -215,5 +260,63 @@ with tab_rab:
 
         st.warning("Silakan lakukan Analisa Struktur terlebih dahulu.")
 
+with tab_rab:
+    st.markdown('<p class="sub_header">Rencana Anggaran Biaya (RAB)</p>', unsafe_allow_html=True)
+    
+    # Cek kelengkapan data
+    if 'structure' in st.session_state and 'pondasi' in st.session_state:
+        
+        # Data Struktur Atas
+        vol_beton_atas = st.session_state['structure']['vol_beton']
+        berat_besi_atas = st.session_state['structure']['berat_besi']
+        luas_bekisting = (2 * st.session_state['geo']['h']/1000 + st.session_state['geo']['b']/1000) * st.session_state['geo']['L']
+        
+        # Data Struktur Bawah
+        vol_beton_bawah = st.session_state['pondasi']['fp_beton']
+        berat_besi_bawah = st.session_state['pondasi']['fp_besi']
+        vol_batu_kali = st.session_state['pondasi']['bk_batu']
+        vol_galian = st.session_state['pondasi']['galian_total']
+        
+        # Harga Dasar (Dictionary)
+        h_bahan = {'semen': p_semen, 'pasir': p_pasir, 'split': p_split, 'besi': p_besi, 'kayu': p_kayu}
+        h_upah = {'pekerja': u_pekerja, 'tukang': u_tukang, 'mandor': u_pekerja*1.2}
+        
+        # Hitung HSP (Panggil libs_ahsp)
+        hsp_beton = calc_biaya.hitung_hsp('beton_k250', h_bahan, h_upah)
+        hsp_besi = calc_biaya.hitung_hsp('pembesian_polos', h_bahan, h_upah) / 10
+        hsp_bek = calc_biaya.hitung_hsp('bekisting_balok', h_bahan, h_upah)
+        # Asumsi HSP Batu Kali & Galian (Bisa ditambah di libs_ahsp.py)
+        hsp_batu = 1100000 # Default kasar
+        hsp_galian = 85000
+        
+        # Tabel RAB Lengkap
+        data_rab = [
+            {"Pekerjaan": "I. PEKERJAAN TANAH", "Vol": "", "Sat": "", "Total": ""},
+            {"Pekerjaan": "   1. Galian Tanah Pondasi", "Vol": vol_galian, "Sat": "m3", "Harga": hsp_galian, "Total": vol_galian*hsp_galian},
+            
+            {"Pekerjaan": "II. PEKERJAAN PONDASI", "Vol": "", "Sat": "", "Total": ""},
+            {"Pekerjaan": "   1. Pasangan Batu Kali", "Vol": vol_batu_kali, "Sat": "m3", "Harga": hsp_batu, "Total": vol_batu_kali*hsp_batu},
+            {"Pekerjaan": "   2. Beton Footplate (K-250)", "Vol": vol_beton_bawah, "Sat": "m3", "Harga": hsp_beton, "Total": vol_beton_bawah*hsp_beton},
+            {"Pekerjaan": "   3. Pembesian Pondasi", "Vol": berat_besi_bawah, "Sat": "kg", "Harga": hsp_besi, "Total": berat_besi_bawah*hsp_besi},
+            
+            {"Pekerjaan": "III. PEKERJAAN STRUKTUR ATAS", "Vol": "", "Sat": "", "Total": ""},
+            {"Pekerjaan": "   1. Beton Balok/Kolom", "Vol": vol_beton_atas, "Sat": "m3", "Harga": hsp_beton, "Total": vol_beton_atas*hsp_beton},
+            {"Pekerjaan": "   2. Pembesian Struktur", "Vol": berat_besi_atas, "Sat": "kg", "Harga": hsp_besi, "Total": berat_besi_atas*hsp_besi},
+            {"Pekerjaan": "   3. Bekisting", "Vol": luas_bekisting, "Sat": "m2", "Harga": hsp_bek, "Total": luas_bekisting*hsp_bek},
+        ]
+        
+        df_rab = pd.DataFrame(data_rab)
+        
+        # Formatting Tabel agar cantik (Menghilangkan NaN di header)
+        st.dataframe(df_rab.style.format(subset=["Vol", "Harga", "Total"], formatter="{:,.0f}"), use_container_width=True)
+        
+        # Total Grand
+        # Filter hanya baris yang punya nilai total (bukan judul kategori)
+        grand_total = df_rab[pd.to_numeric(df_rab['Total'], errors='coerce').notnull()]['Total'].sum()
+        
+        st.success(f"### GRAND TOTAL PROYEK: Rp {grand_total:,.0f}")
+        
+    else:
+        st.warning("⚠️ Data belum lengkap! Pastikan sudah menghitung di Tab 'Analisa Struktur' DAN Tab 'Pondasi'.")
 
 
