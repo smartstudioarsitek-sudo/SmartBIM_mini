@@ -2,276 +2,190 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-
-# --- IMPORT MODULE LOKAL ---
 import libs_sni as sni
 import libs_ahsp as ahsp
-import libs_bim_importer as bim # Import modul baru
-import libs_pondasi as fdn # Import modul pondasi
+import libs_bim_importer as bim
+import libs_pondasi as fdn
+import libs_geoteknik as geo # Module Baru
 
-# --- CONFIG ---
-st.set_page_config(page_title="IndoBIM Pro", layout="wide", page_icon="🇮🇩")
+st.set_page_config(page_title="IndoBIM Ultimate: Slope & Structure", layout="wide", page_icon="🏗️")
 
-# --- CUSTOM CSS (UI FRIENDLY) ---
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
-    .main_header {font-size: 24px; font-weight: bold; color: #2E86C1;}
-    .sub_header {font-size: 18px; font-weight: bold; color: #555;}
-    div.stButton > button:first-child {background-color: #2E86C1; color: white; border-radius: 8px;}
+    .header-style {font-size:20px; font-weight:bold; color:#004E98;}
+    div.stButton > button {background-color: #004E98; color: white; width: 100%;}
     </style>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR (INPUT GLOBAL) ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.image("https://img.icons8.com/color/96/000000/engineer.png", width=80)
-    st.markdown("### IndoBIM Pro 2025")
-    st.caption("Integrated Structural & Cost Estimator")
+    st.title("IndoBIM Ultimate")
+    st.info("Support: Revit/ArchiCAD IFC • SNI 2847 • SE 182 PUPR")
+    
+    st.markdown("### 1. Parameter Tanah (Site)")
+    gamma_tanah = st.number_input("Berat Isi Tanah (kN/m3)", 14.0, 22.0, 18.0)
+    phi_tanah = st.number_input("Sudut Geser (deg)", 10.0, 45.0, 30.0)
+    c_tanah = st.number_input("Kohesi (kN/m2)", 0.0, 50.0, 5.0)
     
     st.divider()
-    st.markdown("#### 1. Material (SNI)")
-    fc_in = st.number_input("Mutu Beton f'c (MPa)", 20, 50, 25)
-    fy_in = st.number_input("Mutu Besi fy (MPa)", 240, 500, 400)
-    
-    st.divider()
-    st.markdown("#### 2. Harga Dasar (Market)")
-    p_semen = st.number_input("Semen (Rp/kg)", value=1500)
-    p_pasir = st.number_input("Pasir (Rp/m3)", value=250000)
-    p_split = st.number_input("Split (Rp/m3)", value=300000)
-    p_besi = st.number_input("Besi (Rp/kg)", value=14000)
-    p_kayu = st.number_input("Kayu Bekisting (Rp/m3)", value=2500000)
-    
-    u_tukang = st.number_input("Upah Tukang (Rp/Hari)", value=135000)
-    u_pekerja = st.number_input("Upah Pekerja (Rp/Hari)", value=110000)
+    st.markdown("### 2. Harga Satuan (RAB)")
+    p_batu = st.number_input("Batu Kali (Rp/m3)", value=280000)
+    p_beton_ready = st.number_input("Beton Readymix (Rp/m3)", value=1100000)
+    u_pekerja = st.number_input("Upah Pekerja", value=120000)
 
-# --- INIT OBJECTS ---
-# Panggil class dari file libs_sni
-calc_struktur = sni.SNI_Concrete_2847(fc_in, fy_in)
-# Panggil class dari file libs_ahsp
+# --- INIT ENGINES ---
+engine_geo = geo.Geotech_Engine(gamma_tanah, phi_tanah, c_tanah)
 calc_biaya = ahsp.AHSP_Engine()
 
-# --- TABS NAVIGASI ---
-tab_home, tab_import, tab_model, tab_analisa, tab_pondasi, tab_rab = st.tabs([
-    "🏠 Dashboard", 
-    "📂 Import Revit/IFC", 
-    "📐 Modeling (Arsitek)", 
-    "⚙️ Analisa (Struktur)", 
-    "🧱 Pondasi (Bawah)",
-    "💰 RAB (AHSP)" 
+# --- TABS ---
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🏠 Home", "📂 BIM Import", "⛰️ Geoteknik (Lereng)", "🏗️ Struktur & Pile", "💰 RAB & Shop Drawing"
 ])
 
-# 1. DASHBOARD
-with tab_home:
-    st.markdown('<p class="main_header">Selamat Datang di IndoBIM Pro</p>', unsafe_allow_html=True)
-    st.info("Aplikasi ini menggunakan standar **SNI 2847:2019** dan **AHSP Permen PUPR** terbaru.")
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Mutu Beton", f"K-{int(fc_in * 10 / 0.83)}", f"f'c {fc_in} MPa")
-    col2.metric("Tegangan Leleh", f"U-{int(fy_in/10)}", f"fy {fy_in} MPa")
-    col3.metric("Wilayah Gempa", "Lampung (D)", "Ss=1.0g (Asumsi)")
+# 1. HOME
+with tab1:
+    st.title("Selamat Datang di IndoBIM Ultimate")
+    st.write("Solusi terintegrasi untuk bangunan di lahan kontur/lereng.")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Kondisi Tanah", "Lereng/Flat", f"Phi: {phi_tanah}°")
+    c2.metric("Metode Analisa", "Rankine & Mayerhof", "SNI 8460:2017")
+    c3.metric("Cost Standard", "SE PUPR 182", "Update 2025")
 
-# 2. IMPORT REVIT/IFC
-with tab_import:
-    st.markdown('<p class="sub_header">Import Model dari Revit (via IFC)</p>', unsafe_allow_html=True)
-    st.info("Di Revit: File > Export > IFC. Lalu upload file .ifc tersebut di sini.")
+# 2. IMPORT BIM
+with tab2:
+    st.markdown('<p class="header-style">Import Model IFC (Revit/ArchiCAD)</p>', unsafe_allow_html=True)
+    st.caption("Aplikasi akan membaca kolom (untuk beban pile) dan dinding (untuk beban balok).")
     
-    uploaded_ifc = st.file_uploader("Upload File IFC", type=["ifc"])
-    
-    if uploaded_ifc is not None:
+    uploaded_ifc = st.file_uploader("Upload .IFC File", type=["ifc"])
+    if uploaded_ifc:
         try:
-            with st.spinner("Membaca Geometri & Parameter IFC..."):
+            with st.spinner("Membaca data BIM..."):
                 engine_ifc = bim.IFC_Parser_Engine(uploaded_ifc)
+                df_struk = engine_ifc.parse_structure()
+                st.success(f"Terbaca {len(df_struk)} elemen struktur.")
+                st.dataframe(df_struk.head())
                 
-                # 1. Parse Struktur
-                df_struktur = engine_ifc.parse_structure()
-                st.success(f"Berhasil membaca {len(df_struktur)} elemen struktur!")
-                st.dataframe(df_struktur.head())
-                
+                # Plot Denah
                 fig, ax = plt.subplots()
-                ax.scatter(df_struktur['X'], df_struktur['Y'], c='blue', marker='s')
-                ax.set_title("Preview Titik Kolom/Balok dari Revit")
+                ax.scatter(df_struk['X'], df_struk['Y'], c='red', marker='x')
+                ax.set_title("Denah Titik Kolom dari BIM")
                 st.pyplot(fig)
                 
-                st.divider()
-                
-                # 2. Parse Arsitek/MEP
-                loads = engine_ifc.calculate_architectural_loads()
-                
-                col_b1, col_b2 = st.columns(2)
-                with col_b1:
-                    st.metric("Beban Dinding (Arsitek)", f"{loads['Total Beban Dinding (kN)']} kN")
-                with col_b2:
-                    st.metric("Beban MEP (Pipa/Duct)", f"{loads['Estimasi Beban MEP (kN)']} kN")
-                
-                st.warning(f"Total Beban Mati Tambahan (SDL): **{loads['Total Load Tambahan (kN)']} kN**")
-                
-                if st.button("📥 Gunakan Data Ini ke Analisa"):
-                    st.session_state['imported_loads'] = loads['Total Load Tambahan (kN)']
-                    st.session_state['imported_geometry'] = df_struktur
-                    st.toast("Data Revit berhasil masuk ke Engine Analisa!", icon="✅")
-                    
+                st.session_state['bim_data'] = df_struk
         except Exception as e:
-            st.error(f"Gagal membaca file IFC: {e}")
-            st.caption("Pastikan file IFC valid export dari Revit 2020+")
+            st.error(f"Error import: {e}")
 
-# 3. MODELING (Simple Grid)
-with tab_model:
-    st.markdown('<p class="sub_header">Input Geometri Grid</p>', unsafe_allow_html=True)
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        pjg_balok = st.number_input("Panjang Bentang Balok (m)", 3.0, 10.0, 6.0)
-        b_balok = st.number_input("Lebar Balok (mm)", 150, 1000, 250)
-        h_balok = st.number_input("Tinggi Balok (mm)", 200, 2000, 500)
-        st.caption(f"Dimensi: {b_balok}x{h_balok} mm")
+# 3. GEOTEKNIK (TALUD)
+with tab3:
+    st.markdown('<p class="header-style">Analisa Dinding Penahan Tanah (Talud)</p>', unsafe_allow_html=True)
     
-    with c2:
-        fig, ax = plt.subplots(figsize=(6,3))
-        rect = plt.Rectangle((0, 0), pjg_balok, h_balok/1000, facecolor='#3498DB', edgecolor='black')
-        ax.add_patch(rect)
-        ax.set_xlim(-1, pjg_balok+1)
-        ax.set_ylim(-1, 2)
+    col_t1, col_t2 = st.columns([1, 2])
+    with col_t1:
+        H_talud = st.number_input("Tinggi Talud (m)", 2.0, 10.0, 3.0)
+        B_atas = st.number_input("Lebar Atas (m)", 0.3, 1.0, 0.4)
+        B_bawah = st.number_input("Lebar Bawah (m)", 0.5, 5.0, 1.5)
+        
+        # Hitung
+        res_talud = engine_geo.hitung_talud_batu_kali(H_talud, B_atas, B_bawah)
+        
+        st.write("---")
+        if res_talud['Status'] == "AMAN":
+            st.success(f"✅ Konstruksi AMAN")
+        else:
+            st.error(f"❌ BAHAYA (Perbesar Dimensi)")
+            
+        st.write(f"SF Guling: {res_talud['SF_Guling']:.2f} (Min 1.5)")
+        st.write(f"SF Geser: {res_talud['SF_Geser']:.2f} (Min 1.5)")
+        
+        # Simpan volume untuk RAB
+        st.session_state['vol_talud'] = res_talud['Vol_Per_M']
+
+    with col_t2:
+        # Visualisasi Penampang Talud
+        fig, ax = plt.subplots()
+        coords = res_talud['Coords']
+        polygon = plt.Polygon(coords, closed=True, fill=True, edgecolor='black', facecolor='gray', alpha=0.5)
+        ax.add_patch(polygon)
+        
+        # Gambar Tanah
+        ax.fill_between([B_bawah, B_bawah+2], [0, 0], [H_talud, H_talud], color='brown', alpha=0.3, label='Tanah Urug')
+        
+        ax.set_xlim(-1, B_bawah+3)
+        ax.set_ylim(-1, H_talud+1)
         ax.set_aspect('equal')
-        ax.set_title(f"Visualisasi Balok B1 ({b_balok}x{h_balok})")
+        ax.set_title("Cross Section Dinding Penahan")
         st.pyplot(fig)
         
-        st.session_state['geo'] = {'L': pjg_balok, 'b': b_balok, 'h': h_balok}
+        # Download DXF Button
+        dxf_str = engine_geo.generate_shop_drawing_dxf("TALUD", res_talud)
+        st.download_button("📥 Download Shop Drawing (.dxf)", dxf_str, "Detail_Talud.dxf")
 
-# 4. ANALISA STRUKTUR
-with tab_analisa:
-    st.markdown('<p class="sub_header">Analisa Kekuatan & Kebutuhan Besi</p>', unsafe_allow_html=True)
+# 4. STRUKTUR & PILE
+with tab4:
+    st.markdown('<p class="header-style">Pondasi Dalam (Bore Pile / Tiang Pancang)</p>', unsafe_allow_html=True)
     
-    col_load1, col_load2 = st.columns(2)
-    with col_load1:
-        q_dl = st.number_input("Beban Mati (DL) - kN/m", 0.0, 50.0, 15.0)
-    with col_load2:
-        q_ll = st.number_input("Beban Hidup (LL) - kN/m", 0.0, 50.0, 5.0)
+    c_p1, c_p2 = st.columns(2)
+    with c_p1:
+        st.info("Input Beban")
+        # Bisa ambil dari BIM atau Manual
+        beban_pile = st.number_input("Beban Aksial per Titik (kN)", 100.0, 5000.0, 800.0)
         
-    q_u = sni.SNI_Load_1727.komb_pembebanan(q_dl, q_ll)
-    L = st.session_state['geo']['L']
-    Mu = (1/8) * q_u * (L**2)
-    
-    st.write("---")
-    st.metric("Momen Ultimate (Mu)", f"{Mu:.2f} kNm", f"Beban Terfaktor: {q_u:.2f} kN/m")
-    
-    b, h = st.session_state['geo']['b'], st.session_state['geo']['h']
-    As_req = calc_struktur.kebutuhan_tulangan(Mu, b, h, 40)
-    
-    dia = st.selectbox("Diameter Tulangan Utama", [13, 16, 19, 22, 25])
-    As_satu = 0.25 * 3.14 * dia**2
-    n_bars = np.ceil(As_req / As_satu)
-    
-    st.success(f"### Rekomendasi Desain: {int(n_bars)} D{dia}")
-    st.caption(f"Luas Tulangan Perlu: {As_req:.1f} mm2")
-    
-    st.session_state['structure'] = {'vol_beton': L * b/1000 * h/1000, 'berat_besi': (As_req * L * 7850 / 1e6) * 1.5}
-
-# 5. TAB PONDASI
-with tab_pondasi:
-    st.markdown('<p class="sub_header">Perencanaan Struktur Bawah (Pondasi)</p>', unsafe_allow_html=True)
-    
-    col_p1, col_p2 = st.columns(2)
-    
-    with col_p1:
-        st.info("Parameter Tanah")
-        sigma = st.number_input("Daya Dukung Tanah (kN/m2)", 50.0, 300.0, 150.0)
-        engine_pondasi = fdn.Foundation_Engine(sigma)
+        st.info("Dimensi Pile")
+        dia_pile = st.selectbox("Diameter (cm)", [30, 40, 50, 60, 80, 100])
+        depth_pile = st.number_input("Kedalaman Rencana (m)", 6.0, 30.0, 12.0)
         
-        st.divider()
-        st.markdown("#### A. Cakar Ayam (Footplate)")
-        fp_beban = st.number_input("Beban Aksial Kolom (Pu) - kN", 10.0, 500.0, 150.0)
-        fp_L = st.number_input("Panjang Pondasi (m)", 0.6, 3.0, 1.0)
-        fp_B = st.number_input("Lebar Pondasi (m)", 0.6, 3.0, 1.0)
-        fp_jumlah = st.number_input("Jumlah Titik Pondasi", 1, 100, 12)
+    with c_p2:
+        st.info("Data Tanah (N-SPT)")
+        nspt = st.number_input("N-SPT Rata-rata sepanjang tiang", 5, 60, 20)
         
-        res_fp = engine_pondasi.hitung_footplate(fp_beban, fp_B, fp_L, 300)
+        # Hitung Kapasitas
+        res_pile = engine_geo.hitung_bore_pile(dia_pile, depth_pile, nspt)
         
-        if "AMAN" in res_fp['status']:
-            st.success(f"Status: {res_fp['status']} (SF: {res_fp['ratio_safety']:.2f})")
+        st.metric("Daya Dukung Izin (Qall)", f"{res_pile['Q_allow']:.1f} kN")
+        
+        # Cek Status
+        if res_pile['Q_allow'] >= beban_pile:
+            st.success(f"✅ Pile Diameter {dia_pile}cm AMAN")
         else:
-            st.error(f"Status: {res_fp['status']}")
+            st.error(f"❌ TIDAK KUAT. Perdalam atau Perbesar Diameter.")
             
-    with col_p2:
-        st.markdown("#### B. Batu Kali (Menerus)")
-        bk_panjang = st.number_input("Total Panjang Pondasi Menerus (m)", 10.0, 500.0, 60.0)
-        bk_la = st.number_input("Lebar Atas (m)", 0.2, 0.5, 0.3)
-        bk_lb = st.number_input("Lebar Bawah (m)", 0.4, 1.0, 0.6)
-        bk_t = st.number_input("Tinggi (m)", 0.5, 2.0, 0.8)
-        
-        res_bk = engine_pondasi.hitung_batu_kali(bk_panjang, bk_la, bk_lb, bk_t)
-        st.metric("Volume Pasangan Batu", f"{res_bk['vol_pasangan']:.2f} m3")
-        
-    st.session_state['pondasi'] = {
-        'fp_beton': res_fp['vol_beton'] * fp_jumlah,
-        'fp_besi': res_fp['berat_besi'] * fp_jumlah,
-        'bk_batu': res_bk['vol_pasangan'],
-        'galian_total': (res_fp['vol_galian'] * fp_jumlah) + res_bk['vol_galian']
-    }
+        # Simpan volume
+        st.session_state['vol_pile'] = res_pile['Vol_Beton']
 
-# 6. RAB / AHSP (MERGED & FIXED)
-with tab_rab:
-    st.markdown('<p class="sub_header">Rencana Anggaran Biaya (RAB)</p>', unsafe_allow_html=True)
+# 5. RAB TOTAL
+with tab5:
+    st.markdown('<p class="header-style">RAB Terintegrasi (SE 182)</p>', unsafe_allow_html=True)
     
-    # Cek kelengkapan data
-    if 'structure' in st.session_state and 'pondasi' in st.session_state:
+    # Input Panjang Talud & Jumlah Pile
+    col_r1, col_r2 = st.columns(2)
+    with col_r1:
+        L_talud = st.number_input("Panjang Total Talud (m')", 10.0, 1000.0, 50.0)
+    with col_r2:
+        n_pile = st.number_input("Jumlah Titik Bore Pile", 1, 500, 20)
         
-        # Data Struktur Atas
-        vol_beton_atas = st.session_state['structure']['vol_beton']
-        berat_besi_atas = st.session_state['structure']['berat_besi']
-        luas_bekisting = (2 * st.session_state['geo']['h']/1000 + st.session_state['geo']['b']/1000) * st.session_state['geo']['L']
+    if 'vol_talud' in st.session_state and 'vol_pile' in st.session_state:
+        # 1. Volume Total
+        vol_batu_total = st.session_state['vol_talud'] * L_talud
+        vol_pile_total = st.session_state['vol_pile'] * n_pile
         
-        # Data Struktur Bawah
-        vol_beton_bawah = st.session_state['pondasi']['fp_beton']
-        berat_besi_bawah = st.session_state['pondasi']['fp_besi']
-        vol_batu_kali = st.session_state['pondasi']['bk_batu']
-        vol_galian = st.session_state['pondasi']['galian_total']
+        # 2. Harga Satuan (HSP)
+        # Dictionary harga dasar (simplified)
+        h_bahan = {'batu kali': p_batu, 'beton k300': p_beton_ready, 'semen': 1500, 'pasir': 250000}
+        h_upah = {'pekerja': u_pekerja, 'tukang': u_pekerja*1.2, 'mandor': u_pekerja*1.3}
         
-        # Harga Dasar (Dictionary)
-        h_bahan = {'semen': p_semen, 'pasir': p_pasir, 'split': p_split, 'besi': p_besi, 'kayu': p_kayu}
-        h_upah = {'pekerja': u_pekerja, 'tukang': u_tukang, 'mandor': u_pekerja*1.2}
+        hsp_talud = calc_biaya.hitung_hsp('pasangan_batu_kali', h_bahan, h_upah)
+        hsp_pile = calc_biaya.hitung_hsp('bore_pile_k300', h_bahan, h_upah)
         
-        # Hitung HSP (Panggil libs_ahsp)
-        hsp_beton = calc_biaya.hitung_hsp('beton_k250', h_bahan, h_upah)
-        hsp_besi = calc_biaya.hitung_hsp('pembesian_polos', h_bahan, h_upah) / 10
-        hsp_bek = calc_biaya.hitung_hsp('bekisting_balok', h_bahan, h_upah)
-        # Asumsi HSP Batu Kali & Galian (Hardcoded sementara)
-        hsp_batu = 1100000 
-        hsp_galian = 85000
-        
-        # Tabel RAB Lengkap
-        # NOTE: Using None for empty numeric cells to avoid formatting errors
+        # 3. Tabel RAB
         data_rab = [
-            {"Pekerjaan": "I. PEKERJAAN TANAH", "Vol": None, "Sat": "", "Harga": None, "Total": None},
-            {"Pekerjaan": "   1. Galian Tanah Pondasi", "Vol": vol_galian, "Sat": "m3", "Harga": hsp_galian, "Total": vol_galian*hsp_galian},
-            
-            {"Pekerjaan": "II. PEKERJAAN PONDASI", "Vol": None, "Sat": "", "Harga": None, "Total": None},
-            {"Pekerjaan": "   1. Pasangan Batu Kali", "Vol": vol_batu_kali, "Sat": "m3", "Harga": hsp_batu, "Total": vol_batu_kali*hsp_batu},
-            {"Pekerjaan": "   2. Beton Footplate (K-250)", "Vol": vol_beton_bawah, "Sat": "m3", "Harga": hsp_beton, "Total": vol_beton_bawah*hsp_beton},
-            {"Pekerjaan": "   3. Pembesian Pondasi", "Vol": berat_besi_bawah, "Sat": "kg", "Harga": hsp_besi, "Total": berat_besi_bawah*hsp_besi},
-            
-            {"Pekerjaan": "III. PEKERJAAN STRUKTUR ATAS", "Vol": None, "Sat": "", "Harga": None, "Total": None},
-            {"Pekerjaan": "   1. Beton Balok/Kolom", "Vol": vol_beton_atas, "Sat": "m3", "Harga": hsp_beton, "Total": vol_beton_atas*hsp_beton},
-            {"Pekerjaan": "   2. Pembesian Struktur", "Vol": berat_besi_atas, "Sat": "kg", "Harga": hsp_besi, "Total": berat_besi_atas*hsp_besi},
-            {"Pekerjaan": "   3. Bekisting", "Vol": luas_bekisting, "Sat": "m2", "Harga": hsp_bek, "Total": luas_bekisting*hsp_bek},
+            {"Item": "Pek. Dinding Penahan (Talud)", "Vol": vol_batu_total, "Sat": "m3", "Harga": hsp_talud, "Total": vol_batu_total*hsp_talud},
+            {"Item": "Pek. Bore Pile", "Vol": vol_pile_total, "Sat": "m3", "Harga": hsp_pile, "Total": vol_pile_total*hsp_pile},
         ]
         
         df_rab = pd.DataFrame(data_rab)
+        st.dataframe(df_rab.style.format({"Vol": "{:.2f}", "Harga": "{:,.0f}", "Total": "{:,.0f}"}), use_container_width=True)
         
-        # Helper function untuk formatting aman (NaN friendly)
-        def format_currency(val):
-            if pd.isna(val) or val == "": return ""
-            return f"{val:,.0f}"
-
-        # Tampilkan DataFrame tanpa style.format bawaan yg error
-        # Kita format manual stringnya
-        df_display = df_rab.copy()
-        df_display["Vol"] = df_display["Vol"].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
-        df_display["Harga"] = df_display["Harga"].apply(format_currency)
-        df_display["Total"] = df_display["Total"].apply(format_currency)
-
-        st.dataframe(df_display, use_container_width=True)
-        
-        # Total Grand
-        grand_total = df_rab["Total"].sum()
-        st.success(f"### GRAND TOTAL PROYEK: Rp {grand_total:,.0f}")
-        
+        st.success(f"### Total Estimasi: Rp {df_rab['Total'].sum():,.0f}")
     else:
-        st.warning("⚠️ Data belum lengkap! Pastikan sudah menghitung di Tab 'Analisa Struktur' DAN Tab 'Pondasi'.")
+        st.warning("Silakan hitung Talud dan Pile terlebih dahulu di Tab Geoteknik.")
