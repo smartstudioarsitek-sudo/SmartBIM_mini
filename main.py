@@ -51,23 +51,51 @@ with st.sidebar:
     st.divider()
     api_key = st.text_input("🔑 Google API Key", type="password", help="Wajib untuk fitur AI Chat")
     
+    # === LIST MODEL LENGKAP SESUAI REQUEST ===
+    st.caption("Pilih Model Gemini:")
     model_opt = st.selectbox(
         "🧠 Versi Model",
-        ["models/gemini-2.0-flash", "models/gemini-2.0-flash-lite", "models/gemini-1.5-flash"],
-        index=0
+        [
+            # --- GEMMA 3 SERIES ---
+            "models/gemma-3-27b-it",
+            "models/gemma-3-12b-it",
+            "models/gemma-3-4b-it",
+            "models/gemma-3-1b-it",
+            "models/gemma-3n-e2b-it",
+            
+            # --- GEMINI 2.5 SERIES (PREVIEW) ---
+            "models/gemini-2.5-flash",
+            "models/gemini-2.5-flash-lite",
+            "models/gemini-2.5-flash-image",
+            "models/gemini-2.5-computer-use-preview-10-2025",
+            
+            # --- GEMINI 2.0 SERIES ---
+            "models/gemini-2.0-flash",
+            "models/gemini-2.0-flash-001",
+            "models/gemini-2.0-flash-lite",
+            "models/gemini-2.0-flash-lite-001",
+            "models/gemini-2.0-flash-exp-image-generation",
+            
+            # --- GEMINI STANDARD LATEST ---
+            "models/gemini-flash-latest",
+            "models/gemini-flash-lite-latest",
+            "models/gemini-pro-latest",
+            "models/gemini-robotics-er-1.5-preview",
+            "models/gemini-1.5-flash",
+            
+            # --- EXPERIMENTAL ---
+            "models/deep-research-pro-"
+        ],
+        index=12, # Default ke gemini-2.0-flash-lite (Stabil & Hemat)
+        help="Pilih versi 'Lite' atau 'Flash' jika versi Pro/Experimental error."
     )
     
     st.divider()
     app_mode = st.radio("🛠️ Mode Aplikasi:", ["🤖 AI Consultant (Chat)", "🏗️ Engineering Studio (Full App)"])
     
     # --- INPUT GLOBAL (GLOBAL INPUTS) ---
-    # Variabel ini harus didefinisikan di level Sidebar agar bisa diakses oleh Mode manapun
-    # Kita berikan nilai default agar tidak Error saat pindah mode
-    
+    # Mendefinisikan variabel agar tidak NameError di mode manapun
     st.divider()
-    
-    # Input Material & Tanah (Selalu muncul atau minimal terdefinisi)
-    # Jika mode Chat, kita sembunyikan tapi tetap set nilai defaultnya
     
     if app_mode == "🏗️ Engineering Studio (Full App)":
         with st.expander("📝 Input Material & Tanah", expanded=True):
@@ -89,26 +117,15 @@ with st.sidebar:
             u_tukang = st.number_input("Upah Tukang", 135000)
             u_pekerja = st.number_input("Upah Pekerja", 110000)
     else:
-        # Nilai Default untuk Mode Chat (Agar variabel tidak 'undefined')
-        fc_in = 25
-        fy_in = 400
-        gamma_tanah = 18.0
-        phi_tanah = 30.0
-        c_tanah = 5.0
-        sigma_tanah = 150.0
-        
-        p_semen = 1500
-        p_pasir = 250000
-        p_split = 300000
-        p_besi = 14000
-        p_kayu = 2500000
-        p_batu = 280000
-        p_beton_ready = 1100000
-        u_tukang = 135000
-        u_pekerja = 110000
+        # Nilai Default untuk Mode Chat (Agar tidak undefined error)
+        fc_in, fy_in = 25, 400
+        gamma_tanah, phi_tanah, c_tanah, sigma_tanah = 18.0, 30.0, 5.0, 150.0
+        p_semen, p_pasir, p_split, p_batu = 1500, 250000, 300000, 280000
+        p_besi, p_kayu, p_beton_ready = 14000, 2500000, 1100000
+        u_tukang, u_pekerja = 135000, 110000
 
-# --- INIT ENGINES (ENGINE DINYALAKAN SETELAH VARIABEL DIDEFINISIKAN) ---
-# Sekarang variabel gamma_tanah dll sudah pasti ada nilainya
+# --- INIT ENGINES ---
+# Inisialisasi setelah variabel terdefinisi
 calc_sni = sni.SNI_Concrete_2847(fc_in, fy_in)
 calc_biaya = ahsp.AHSP_Engine()
 calc_geo = geo.Geotech_Engine(gamma_tanah, phi_tanah, c_tanah)
@@ -122,7 +139,6 @@ if app_mode == "🤖 AI Consultant (Chat)":
     st.header("🤖 AI Engineering Consultant")
     
     with st.expander("ℹ️ Lihat Data yang Dibaca AI"):
-        # Kita bungkus dalam try-except agar aman jika file ai_engine bermasalah
         try:
             st.text(ai.generate_context_from_state(st.session_state))
         except:
@@ -151,11 +167,14 @@ if app_mode == "🤖 AI Consultant (Chat)":
                 
             with st.chat_message("assistant"):
                 with st.spinner("Berpikir..."):
-                    ctx = ai.generate_context_from_state(st.session_state)
-                    brain = ai.SmartBIM_Brain(api_key, model_opt, ai.PERSONAS[persona])
-                    response = brain.ask(prompt, context_data=ctx)
-                    st.markdown(response)
-                    st.session_state.messages.append({"role": "assistant", "content": response})
+                    try:
+                        ctx = ai.generate_context_from_state(st.session_state)
+                        brain = ai.SmartBIM_Brain(api_key, model_opt, ai.PERSONAS[persona])
+                        response = brain.ask(prompt, context_data=ctx)
+                        st.markdown(response)
+                        st.session_state.messages.append({"role": "assistant", "content": response})
+                    except Exception as e:
+                        st.error(f"Terjadi Kesalahan AI: {e}")
 
 # ==============================================================================
 # MODE 2: ENGINEERING STUDIO
@@ -174,7 +193,9 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
         c1, c2, c3 = st.columns(3)
         c1.metric("Mutu Beton", f"fc' {fc_in} MPa")
         c2.metric("Mutu Baja", f"fy {fy_in} MPa")
-        c3.metric("Status AI", "Siap")
+        c3.metric("Status AI", "Siap Terhubung")
+        
+        st.info("Selamat datang di EnginEx Titan. Gunakan Tab di atas untuk mulai mendesain.")
 
     # --- TAB 2: BIM IMPORT ---
     with tabs[1]:
@@ -190,7 +211,7 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
                     val_load = loads['Total Load Tambahan (kN)']
                     st.session_state['bim_loads'] = val_load
                     st.success(f"Data Tersimpan: Beban Tambahan {val_load} kN")
-            except Exception as e: st.error(f"Error: {e}")
+            except Exception as e: st.error(f"Error pembacaan IFC: {e}")
 
     # --- TAB 3: MODELING ---
     with tabs[2]:
@@ -203,6 +224,15 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
             st.session_state['geo'] = {'L': L, 'b': b, 'h': h, 'fc': fc_in} # Update state
         with col_mod2:
             st.info(f"Dimensi Aktif: {b} x {h} mm, Panjang: {L} m")
+            
+            # Visualisasi Sederhana Box
+            fig, ax = plt.subplots(figsize=(4, 2))
+            ax.add_patch(plt.Rectangle((0, 0), L, h/1000, color='#2E86C1', alpha=0.5))
+            ax.set_xlim(-0.5, L+0.5)
+            ax.set_ylim(-0.5, (h/1000)+1)
+            ax.set_title("Visualisasi Bentang (Tampak Samping)")
+            ax.set_aspect('equal')
+            st.pyplot(fig)
 
     # --- TAB 4: BETON (DENGAN OPTIMIZER) ---
     with tabs[3]:
@@ -225,7 +255,6 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
                 n = int(As_req / (0.25*3.14*dia**2)) + 1
                 st.success(f"Pakai {n} D{dia}")
                 
-                # Volume dalam m3
                 vol = (st.session_state['geo']['L'] * st.session_state['geo']['b'] * st.session_state['geo']['h']) / 1e6
                 st.session_state['structure'] = {'vol_beton': vol, 'berat_besi': 100}
                 st.session_state['report_struk'] = {'Mu': round(Mu, 2), 'Tulangan': f"{n}D{dia}"}
@@ -251,9 +280,9 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
                         best = hasil[0]
                         st.success(f"🏆 REKOMENDASI: {best['b']} x {best['h']} mm")
                         st.metric("Biaya per m'", f"Rp {best['Biaya']:,.0f}")
-                        st.dataframe(pd.DataFrame(hasil))
+                        st.dataframe(pd.DataFrame(hasil)[['b', 'h', 'As', 'Biaya', 'Rho']])
                     else:
-                        st.error("Tidak ditemukan solusi. Coba kurangi beban.")
+                        st.error("Tidak ditemukan solusi yang memenuhi syarat. Coba kurangi beban.")
 
     # --- TAB 5: BAJA ---
     with tabs[4]:
@@ -282,6 +311,7 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
             eng_gempa = quake.SNI_Gempa_1726(Ss, 0.4, site)
             V, sds, sd1 = eng_gempa.hitung_base_shear(Wt, 8.0)
             st.metric("Base Shear (V)", f"{V:.2f} kN")
+            st.json({'Sds': round(sds,3), 'Sd1': round(sd1,3)})
             st.session_state['report_gempa'] = {'V_gempa': round(V,2), 'Site': site}
 
     # --- TAB 7: GEOTEKNIK ---
@@ -289,11 +319,13 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
         st.subheader("Analisa Geoteknik")
         c1, c2 = st.columns(2)
         with c1:
+            st.markdown("#### Pondasi Footplate")
             Pu = st.number_input("Beban P (kN)", 50.0, 1000.0, 100.0)
             res_fp = calc_fdn.hitung_footplate(Pu, 1.0, 1.0, 300)
             st.write(res_fp)
             st.session_state['pondasi'] = {'fp_beton': res_fp['vol_beton'], 'fp_besi': res_fp['berat_besi']}
         with c2:
+            st.markdown("#### Dinding Penahan")
             res_talud = calc_geo.hitung_talud_batu_kali(3.0, 0.4, 1.5)
             st.write(res_talud)
             st.session_state['geotech'] = {'vol_talud': res_talud['Vol_Per_M']}
@@ -319,5 +351,8 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
         with c2:
             if st.button("Generate PDF Report (Professional)"):
                 with st.spinner("Membuat PDF..."):
-                    pdf_bytes = pdf_engine.create_professional_report(st.session_state)
-                    st.download_button("📄 Download PDF", pdf_bytes, "Laporan_Resmi.pdf", "application/pdf")
+                    try:
+                        pdf_bytes = pdf_engine.create_professional_report(st.session_state)
+                        st.download_button("📄 Download PDF", pdf_bytes, "Laporan_Resmi.pdf", "application/pdf")
+                    except Exception as e:
+                        st.error(f"Gagal membuat PDF: {e}")
