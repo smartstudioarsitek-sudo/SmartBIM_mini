@@ -1,133 +1,183 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import ai_engine as ai  # Import otak AI kita
+import ai_engine as ai
+import libs_tools as tools
+# Import library asli untuk Mode Studio
+import libs_sni as sni
+import libs_baja as steel
+import libs_gempa as quake
 
-# --- CONFIG PAGE ---
-st.set_page_config(page_title="Smart Engine X - Agentic BIM", layout="wide", page_icon="🏗️")
+# --- CONFIG ---
+st.set_page_config(page_title="EnginEx Titan", layout="wide", page_icon="🏗️")
 
-# --- CSS KHUSUS CHAT ---
+# --- CUSTOM CSS (Agar mirip screenshot Anda) ---
 st.markdown("""
 <style>
-    .stChatMessage {background-color: #f0f2f6; border-radius: 10px; padding: 10px;}
-    .user-msg {background-color: #e8f0fe;}
-    .persona-badge {font-size: 12px; font-weight: bold; color: white; padding: 2px 8px; border-radius: 4px;}
-    .satria {background-color: #2E86C1;}
-    .budi {background-color: #27AE60;}
-    .siti {background-color: #8E44AD;}
+    .main-header {font-size: 24px; font-weight: bold; color: #1F618D;}
+    .stButton>button {width: 100%; border-radius: 5px;}
+    .sidebar-text {font-size: 12px; color: #555;}
+    /* Chat Bubble Style */
+    .stChatMessage {background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 10px;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- INIT SESSION STATE ---
+# --- SIDEBAR: KONFIGURASI UTAMA ---
+with st.sidebar:
+    st.title("ENGINEX TITAN")
+    st.caption("AI + BIM + Structural Calculation")
+    
+    st.divider()
+    
+    # 1. API KEY INPUT
+    st.subheader("🔑 API Key & Model AI")
+    api_key = st.text_input("Google API Key:", type="password", placeholder="Paste Gemini API Key disini...")
+    
+    if api_key:
+        st.success("✅ API Key Terdeteksi")
+    else:
+        st.warning("⚠️ Masukkan API Key untuk mengaktifkan AI")
+        st.markdown("[Dapatkan API Key Gratis](https://aistudio.google.com/app/apikey)")
+
+    # 2. MODEL SELECTOR
+    model_option = st.selectbox(
+        "Pilih Model Gemini:",
+        ["models/gemini-1.5-flash", "models/gemini-1.5-pro"],
+        index=0,
+        help="Flash lebih cepat & hemat, Pro lebih pintar untuk analisis kompleks."
+    )
+    
+    st.divider()
+    
+    # 3. MODE SELECTOR (HYBRID)
+    st.subheader("🛠️ Mode Aplikasi")
+    app_mode = st.radio(
+        "Pilih Tampilan:",
+        ["🤖 AI Consultant (Chat)", "🏗️ Engineering Studio (Manual)"],
+        captions=["Diskusi & Analisa Otomatis", "Kalkulator & Form Input"]
+    )
+    
+    if st.button("🧹 Reset Data & Chat"):
+        st.session_state.messages = []
+        st.rerun()
+
+# --- INITIALIZE SESSION STATE ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "agent" not in st.session_state:
-    st.session_state.agent = ai.SmartBIM_Agent()
-if "last_data" not in st.session_state:
-    st.session_state.last_data = None # Untuk menampilkan visual di Canvas kanan
 
-# --- HEADER ---
-st.title("🏗️ Smart Engine X: Autonomous Engineering Firm")
-st.caption("Powered by Multi-Agent System: Ir. Satria (Struktur) • Budi (Estimator) • Siti (Drafter)")
-
-# --- LAYOUT HYBRID (50% Chat, 50% Canvas Visual) ---
-col_chat, col_canvas = st.columns([1, 1], gap="medium")
-
-# ==========================================================
-# KOLOM KIRI: INTERFACE CHAT (HORIZON 1: FRICTIONLESS UI)
-# ==========================================================
-with col_chat:
-    st.subheader("💬 Diskusi Teknis")
+# ==============================================================================
+# MODE 1: AI CONSULTANT (CHAT INTERFACE - MIRIP GAMBAR 3)
+# ==============================================================================
+if app_mode == "🤖 AI Consultant (Chat)":
+    st.header("🤖 AI Engineering Consultant")
     
-    # Tampilkan History Chat
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            if "persona" in message:
-                # Warna badge sesuai persona
-                color = "satria" if "Satria" in message["persona"] else "budi" if "Budi" in message["persona"] else "gray"
-                st.markdown(f'<span class="persona-badge {color}">{message["persona"]}</span>', unsafe_allow_html=True)
-            st.markdown(message["content"])
-
+    # Pilih Persona
+    selected_persona = st.selectbox(
+        "Pilih Ahli:",
+        list(ai.PERSONAS.keys())
+    )
+    
+    # Tampilkan Chat History
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            
     # Input User
-    if prompt := st.chat_input("Contoh: 'Hitung balok 300x600 beban 80 kNm' atau 'Berapa biayanya?'"):
-        # 1. Simpan pesan user
+    if prompt := st.chat_input("Konsultasikan proyek Anda di sini..."):
+        if not api_key:
+            st.error("❌ Mohon masukkan Google API Key di Sidebar terlebih dahulu!")
+            st.stop()
+            
+        # 1. Tampilkan pesan user
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
-
-        # 2. Proses di AI Engine (Routing ke Tools)
-        with st.spinner("Sedang memanggil tenaga ahli..."):
-            response = st.session_state.agent.process_query(prompt)
             
-        # 3. Tampilkan Balasan AI
-        st.session_state.messages.append({"role": "assistant", "content": response["text"], "persona": response["persona"]})
-        
-        # 4. Update State Data untuk Canvas Kanan
-        if response["data"]:
-            st.session_state.last_data = response["data"]
-            
-        # Rerun untuk update tampilan
-        st.rerun()
-
-# ==========================================================
-# KOLOM KANAN: DIGITAL CANVAS (VISUALISASI REAL-TIME)
-# ==========================================================
-with col_canvas:
-    st.subheader("📐 Canvas Kerja & Visualisasi")
-    
-    data = st.session_state.last_data
-    
-    if data is None:
-        st.info("👋 Belum ada data teknis. Silakan mulai diskusi di kolom chat sebelah kiri.")
-        st.markdown("""
-        **Coba perintah ini:**
-        - *"Tolong cek balok ukuran 300x500 dengan beban 60 kNm"*
-        - *"Hitung pondasi telapak lebar 1.5 meter"*
-        - *"Berapa estimasi biaya struktur tersebut?"*
-        """)
-    
-    else:
-        # VISUALISASI DINAMIS BERDASARKAN KONTEKS
-        if data['type'] == 'balok':
-            val = data['val']
-            st.success(f"📌 Detail Desain: Balok {val['b']} x {val['h']} mm")
-            
-            # Tabulasi Data
-            metric1, metric2, metric3 = st.columns(3)
-            metric1.metric("Mutu Beton", f"fc {val['fc']}")
-            metric2.metric("Tulangan Perlu", f"{val['as']:.0f} mm2")
-            metric3.metric("Jumlah Batang", f"{val['n_bars']} bh")
-            
-            # Gambar Penampang Sederhana (Matplotlib)
-            fig, ax = plt.subplots(figsize=(4, 4))
-            # Beton
-            rect = plt.Rectangle((0, 0), val['b'], val['h'], linewidth=2, edgecolor='black', facecolor='#D6EAF8')
-            ax.add_patch(rect)
-            # Tulangan (Lingkaran merah)
-            spacing = (val['b'] - 80) / (val['n_bars'] + 1)
-            for i in range(val['n_bars']):
-                circle = plt.Circle((40 + (i+1)*spacing, 40), 10, color='red') # Asumsi tulangan tarik bawah
-                ax.add_patch(circle)
+        # 2. Proses AI
+        with st.chat_message("assistant"):
+            with st.spinner(f"{selected_persona.split(' ')[1]} sedang berpikir & menghitung..."):
+                # Init Brain dengan Persona Terpilih
+                brain = ai.SmartBIM_Brain(
+                    api_key=api_key, 
+                    model_name=model_option,
+                    system_instruction=ai.PERSONAS[selected_persona]
+                )
                 
-            ax.set_xlim(-50, val['b']+50)
-            ax.set_ylim(-50, val['h']+50)
-            ax.set_aspect('equal')
-            ax.axis('off')
-            ax.set_title(f"Visualisasi Penampang {val['b']}x{val['h']}")
-            st.pyplot(fig)
-            
-            st.download_button("📥 Download Laporan PDF (Mock)", "Data PDF", "Laporan_Struktur.pdf")
-            
-        elif data['type'] == 'pondasi':
-            st.info("Visualisasi Pondasi sedang digenerate...")
-            # (Tambahkan kode plot pondasi disini)
+                # Kirim history chat sebelumnya (agar konteks nyambung)
+                # (Fitur ini opsional, untuk simplifikasi kita kirim prompt baru saja di demo ini)
+                response_text = brain.ask(prompt)
+                
+                st.markdown(response_text)
+                st.session_state.messages.append({"role": "assistant", "content": response_text})
 
-# --- SIDEBAR: KONTROL MANUAL (FALLBACK) ---
-with st.sidebar:
-    st.header("⚙️ Panel Kontrol")
-    st.write("Jika AI ragu, Anda bisa override parameter di sini.")
-    override_fc = st.number_input("Override fc' (MPa)", 20, 50, 25)
-    if st.button("Reset Chat"):
-        st.session_state.messages = []
-        st.session_state.last_data = None
-        st.rerun()
+# ==============================================================================
+# MODE 2: ENGINEERING STUDIO (FORM INPUT - MIRIP GAMBAR 2)
+# ==============================================================================
+elif app_mode == "🏗️ Engineering Studio (Manual)":
+    st.header("🏗️ Engineering Studio (TITAN)")
+    
+    # Tab Navigasi Kalkulator
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "Struktur Beton", "Struktur Baja", "Analisa Gempa", "RAB & Report"
+    ])
+    
+    # --- TAB 1: BETON ---
+    with tab1:
+        st.subheader("Analisa Balok Beton (SNI 2847)")
+        col1, col2 = st.columns(2)
+        with col1:
+            b = st.number_input("Lebar (mm)", 150, 1000, 300)
+            h = st.number_input("Tinggi (mm)", 200, 2000, 600)
+            fc = st.number_input("Mutu Beton f'c (MPa)", 20, 60, 25)
+            fy = st.number_input("Mutu Baja fy (MPa)", 240, 550, 400)
+        with col2:
+            mu = st.number_input("Momen Ultimate (kNm)", 10.0, 1000.0, 150.0)
+            vu = st.number_input("Geser Ultimate (kN)", 10.0, 1000.0, 100.0)
+            
+            if st.button("Hitung Kapasitas", type="primary"):
+                # Panggil Libs Manual (Tanpa AI)
+                engine = sni.SNI_Concrete_2847(fc, fy)
+                as_req = engine.kebutuhan_tulangan(mu, b, h, 40)
+                
+                # Tampilkan Hasil Visual
+                st.metric("Tulangan Perlu (As)", f"{as_req:.2f} mm2")
+                
+                n_bars = int(as_req / (0.25 * 3.14 * 16**2)) + 1
+                st.info(f"Rekomendasi: {n_bars} D16")
+                
+                if n_bars > 8:
+                    st.warning("⚠️ Tulangan terlalu padat! Perbesar dimensi.")
+                else:
+                    st.success("✅ Desain Aman")
+
+    # --- TAB 2: BAJA ---
+    with tab2:
+        st.subheader("Cek Profil Baja WF (SNI 1729)")
+        mu_baja = st.number_input("Momen Beban (kNm)", 50.0)
+        lb = st.number_input("Panjang Bentang (m)", 6.0)
+        
+        # Panggil Libs Baja
+        wf_data = {'Zx': 481} # Contoh WF 300
+        st.caption("Default: WF 300x150 (Zx=481 cm3)")
+        
+        if st.button("Cek Rasio Baja"):
+            eng_steel = steel.SNI_Steel_1729(250, 410)
+            res = eng_steel.cek_balok_lentur(mu_baja, wf_data, lb)
+            
+            st.write(f"Kapasitas Phi_Mn: {res['Phi_Mn']:.2f} kNm")
+            st.metric("Ratio Desain", f"{res['Ratio']:.3f}", delta_color="inverse")
+            if res['Ratio'] < 1.0:
+                st.success("Profil AMAN")
+            else:
+                st.error("Profil GAGAL (Tekuk)")
+
+    # --- TAB 3: GEMPA ---
+    with tab3:
+        st.subheader("Base Shear Gempa (SNI 1726)")
+        w_gedung = st.number_input("Berat Bangunan (kN)", 5000.0)
+        ss_input = st.number_input("Ss (Peta Gempa)", 0.8)
+        
+        if st.button("Hitung V Gempa"):
+            eng_quake = quake.SNI_Gempa_1726(ss_input, 0.4, "SD")
+            v, sds, sd1 = eng_quake.hitung_base_shear(w_gedung, 8.0)
+            st.metric("Gaya Geser Dasar (V)", f"{v:.2f} kN")
+            st.json({"Sds": sds, "Sd1": sd1})
