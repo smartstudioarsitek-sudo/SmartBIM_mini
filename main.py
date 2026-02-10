@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 import ai_engine as ai
 
-# --- IMPORT MODULES ---
+# --- IMPORT SEMUA MODULE (WAJIB LENGKAP) ---
 import libs_sni as sni
 import libs_ahsp as ahsp
 import libs_bim_importer as bim
@@ -14,7 +14,8 @@ import libs_geoteknik as geo
 import libs_export as exp
 import libs_baja as steel
 import libs_gempa as quake
-import libs_pdf as pdf_engine # PDF Generator
+import libs_pdf as pdf_engine
+import libs_optimizer as opt
 
 # --- CONFIG PAGE ---
 st.set_page_config(page_title="EnginEx Titan: IndoBIM Ultimate", layout="wide", page_icon="🏗️")
@@ -58,10 +59,10 @@ with st.sidebar:
     
     st.divider()
     app_mode = st.radio("🛠️ Mode Aplikasi:", ["🤖 AI Consultant (Chat)", "🏗️ Engineering Studio (Full App)"])
-    st.divider()
     
-    # Input Global (Hanya muncul di mode Studio untuk rapih)
+    # Input Global (Hanya di mode Studio)
     if app_mode == "🏗️ Engineering Studio (Full App)":
+        st.divider()
         with st.expander("📝 Input Material & Tanah", expanded=True):
             fc_in = st.number_input("Mutu Beton f'c (MPa)", 20, 50, 25)
             fy_in = st.number_input("Mutu Besi fy (MPa)", 240, 500, 400)
@@ -84,12 +85,14 @@ with st.sidebar:
         # Default value untuk mode chat agar tidak error
         fc_in, fy_in = 25, 400
         p_beton_ready, p_besi, p_kayu = 1100000, 14000, 2500000
-        
+        p_semen, p_pasir, p_split, p_batu = 1500, 250000, 300000, 280000
+        u_tukang, u_pekerja = 135000, 110000
+
 # --- INIT ENGINES ---
 calc_sni = sni.SNI_Concrete_2847(fc_in, fy_in)
 calc_biaya = ahsp.AHSP_Engine()
-calc_geo = geo.Geotech_Engine(18.0, 30.0, 5.0) # Default geo
-calc_fdn = fdn.Foundation_Engine(150.0) # Default fdn
+calc_geo = geo.Geotech_Engine(gamma_tanah, phi_tanah, c_tanah)
+calc_fdn = fdn.Foundation_Engine(sigma_tanah)
 engine_export = exp.Export_Engine()
 
 # ==============================================================================
@@ -135,39 +138,78 @@ if app_mode == "🤖 AI Consultant (Chat)":
 # ==============================================================================
 elif app_mode == "🏗️ Engineering Studio (Full App)":
     
-    tabs = st.tabs(["🏠 Dash", "📂 BIM", "📐 Model", "🏗️ Beton (Opt)", "🔩 Baja", "🌋 Gempa", "⛰️ Geotek", "💰 Laporan"])
+    tabs = st.tabs([
+        "🏠 Dash", "📂 BIM", "📐 Model", 
+        "🏗️ Beton (Opt)", "🔩 Baja", "🌋 Gempa", 
+        "⛰️ Geotek", "💰 Laporan"
+    ])
 
-    # TAB 1 - 3 (Standard)
+    # --- TAB 1: DASHBOARD ---
     with tabs[0]:
-        st.metric("Status Aplikasi", "Ready", "Optimasi Aktif")
-    
+        st.subheader("Dashboard Proyek")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Mutu Beton", f"fc' {fc_in} MPa")
+        c2.metric("Mutu Baja", f"fy {fy_in} MPa")
+        c3.metric("Status AI", "Siap")
+
+    # --- TAB 2: BIM IMPORT ---
     with tabs[1]:
         st.subheader("Import IFC")
-        if st.file_uploader("Upload .IFC"):
-            st.success("File terupload (Simulasi). Klik Simpan.")
-            if st.button("Simpan Data BIM ke AI"):
-                st.session_state['bim_loads'] = 15.5
-                st.success("Data Tersimpan: Beban 15.5 kN")
+        uploaded_ifc = st.file_uploader("Upload File .IFC", type=["ifc"])
+        if uploaded_ifc:
+            try:
+                engine_ifc = bim.IFC_Parser_Engine(uploaded_ifc)
+                df_struk = engine_ifc.parse_structure()
+                loads = engine_ifc.calculate_architectural_loads()
+                st.dataframe(df_struk.head())
+                if st.button("Simpan Data BIM ke AI"):
+                    val_load = loads['Total Load Tambahan (kN)']
+                    st.session_state['bim_loads'] = val_load
+                    st.success(f"Data Tersimpan: Beban Tambahan {val_load} kN")
+            except Exception as e: st.error(f"Error: {e}")
 
+    # --- TAB 3: MODELING ---
     with tabs[2]:
-        st.subheader("Modeling")
-        L = st.number_input("Bentang (m)", 2.0, 12.0, st.session_state['geo']['L'])
-        st.session_state['geo']['L'] = L
+        st.subheader("Modeling Geometri")
+        col_mod1, col_mod2 = st.columns([1, 2])
+        with col_mod1:
+            L = st.number_input("Panjang Bentang (m)", 2.0, 12.0, st.session_state['geo']['L'])
+            b = st.number_input("Lebar Balok (mm)", 150, 800, st.session_state['geo']['b'])
+            h = st.number_input("Tinggi Balok (mm)", 200, 1500, st.session_state['geo']['h'])
+            st.session_state['geo'] = {'L': L, 'b': b, 'h': h, 'fc': fc_in} # Update state
+        with col_mod2:
+            st.info(f"Dimensi Aktif: {b} x {h} mm, Panjang: {L} m")
 
-    # TAB 4 - BETON (DENGAN OPTIMIZER)
+    # --- TAB 4: BETON (DENGAN OPTIMIZER) ---
     with tabs[3]:
         st.markdown("### 🏗️ Desain Struktur Beton")
-        mode_beton = st.radio("Mode:", ["A. Cek Manual", "B. Cari Dimensi Optimal (Auto)"], horizontal=True)
+        mode_beton = st.radio("Pilih Mode:", ["A. Cek Kapasitas (Manual)", "B. Cari Dimensi Optimal (Auto)"], horizontal=True)
         
-        if mode_beton == "A. Cek Manual":
-            mu = st.number_input("Momen (kNm)", 10.0, 500.0, 100.0)
-            st.info("Gunakan tab ini untuk cek keamanan balok yang sudah ada.")
-            # ... (Kode cek manual standard) ...
-            
+        if mode_beton == "A. Cek Kapasitas (Manual)":
+            c1, c2 = st.columns(2)
+            with c1:
+                q_dl = st.number_input("DL (kN/m)", 15.0)
+                q_ll = st.number_input("LL (kN/m)", 5.0)
+                if 'bim_loads' in st.session_state: 
+                    q_dl += st.session_state['bim_loads'] / st.session_state['geo']['L']
+                    st.caption(f"Termasuk beban BIM: {st.session_state['bim_loads']} kN")
+            with c2:
+                Mu = (1/8) * (1.2*q_dl + 1.6*q_ll) * st.session_state['geo']['L']**2
+                st.metric("Momen Ultimate (Mu)", f"{Mu:.2f} kNm")
+                As_req = calc_sni.kebutuhan_tulangan(Mu, st.session_state['geo']['b'], st.session_state['geo']['h'], 40)
+                dia = st.selectbox("Diameter", [13, 16, 19, 22])
+                n = int(As_req / (0.25*3.14*dia**2)) + 1
+                st.success(f"Pakai {n} D{dia}")
+                
+                st.session_state['structure'] = {'vol_beton': st.session_state['geo']['L']*st.session_state['geo']['b']*st.session_state['geo']['h']/1e6, 'berat_besi': 100}
+                st.session_state['report_struk'] = {'Mu': round(Mu, 2), 'Tulangan': f"{n}D{dia}"}
+                
+                if st.button("Download DXF Balok"):
+                    dxf = engine_export.create_dxf("BALOK", {'b':st.session_state['geo']['b'],'h':st.session_state['geo']['h'],'dia':dia,'n':n,'pjg':st.session_state['geo']['L']})
+                    st.download_button("📥 .DXF", dxf, "balok.dxf")
+
         elif mode_beton == "B. Cari Dimensi Optimal (Auto)":
-            st.info("💡 Cari ukuran balok paling hemat biaya namun AMAN.")
-            import libs_optimizer as opt 
-            
+            st.info("💡 Fitur ini mencari ukuran balok paling hemat biaya namun AMAN (SNI).")
             c1, c2 = st.columns(2)
             with c1:
                 mu_target = st.number_input("Target Momen (kNm)", 50.0, 1000.0, 150.0)
@@ -185,14 +227,70 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
                         st.metric("Biaya per m'", f"Rp {best['Biaya']:,.0f}")
                         st.dataframe(pd.DataFrame(hasil))
                     else:
-                        st.error("Tidak ketemu. Coba kurangi beban.")
+                        st.error("Tidak ditemukan solusi. Coba kurangi beban.")
 
-    # TAB 8 - REPORT
+    # --- TAB 5: BAJA (DIKEMBALIKAN LENGKAP) ---
+    with tabs[4]:
+        st.subheader("Analisa Baja WF")
+        c1, c2 = st.columns(2)
+        with c1:
+            Mu_baja = st.number_input("Momen (kNm)", 10.0, 500.0, 50.0)
+            Lb_baja = st.number_input("Panjang (m)", 1.0, 12.0, 4.0)
+        with c2:
+            wf_list = {"WF 300x150": {'Zx': 481}, "WF 400x200": {'Zx': 1190}}
+            pilih = st.selectbox("Profil", list(wf_list.keys()))
+            if st.button("Cek Profil Baja"):
+                res = steel.SNI_Steel_1729(250, 410).cek_balok_lentur(Mu_baja, wf_list[pilih], Lb_baja)
+                st.write(res)
+                st.session_state['report_baja'] = {'Profil': pilih, 'Ratio': res['Ratio'], 'Status': res['Status'], 'Mu': Mu_baja, 'Phi_Mn': res['Phi_Mn']}
+
+    # --- TAB 6: GEMPA (DIKEMBALIKAN LENGKAP) ---
+    with tabs[5]:
+        st.subheader("Analisa Gempa SNI 1726")
+        c1, c2 = st.columns(2)
+        with c1:
+            Ss = st.number_input("Ss", 0.0, 2.0, 0.8)
+            site = st.selectbox("Tanah", ["SE", "SD", "SC"])
+        with c2:
+            Wt = st.number_input("Berat Bangunan (kN)", 100.0, 10000.0, 2000.0)
+            eng_gempa = quake.SNI_Gempa_1726(Ss, 0.4, site)
+            V, sds, sd1 = eng_gempa.hitung_base_shear(Wt, 8.0)
+            st.metric("Base Shear (V)", f"{V:.2f} kN")
+            st.session_state['report_gempa'] = {'V_gempa': round(V,2), 'Site': site}
+
+    # --- TAB 7: GEOTEKNIK (DIKEMBALIKAN LENGKAP) ---
+    with tabs[6]:
+        st.subheader("Analisa Geoteknik")
+        c1, c2 = st.columns(2)
+        with c1:
+            Pu = st.number_input("Beban P (kN)", 50.0, 1000.0, 100.0)
+            res_fp = calc_fdn.hitung_footplate(Pu, 1.0, 1.0, 300)
+            st.write(res_fp)
+            st.session_state['pondasi'] = {'fp_beton': res_fp['vol_beton'], 'fp_besi': res_fp['berat_besi']}
+        with c2:
+            res_talud = calc_geo.hitung_talud_batu_kali(3.0, 0.4, 1.5)
+            st.write(res_talud)
+            st.session_state['report_geo'] = {'Talud_SF': f"{res_talud['SF_Geser']:.2f}", 'Status': res_talud['Status']}
+
+    # --- TAB 8: RAB & REPORT ---
     with tabs[7]:
         st.subheader("Laporan Akhir")
-        import libs_pdf as pdf_engine
         
-        if st.button("Generate PDF Report (Professional)"):
-            with st.spinner("Membuat PDF..."):
-                pdf_bytes = pdf_engine.create_professional_report(st.session_state)
-                st.download_button("📄 Download PDF", pdf_bytes, "Laporan.pdf", "application/pdf")
+        # Hitungan RAB Dummy untuk Display
+        vol_beton = st.session_state['structure'].get('vol_beton', 0)
+        hsp = calc_biaya.hitung_hsp('beton_k250', {'semen': p_semen, 'pasir':p_pasir, 'split':p_split}, {'pekerja':u_pekerja})
+        st.metric("Estimasi Biaya Struktur Atas", f"Rp {vol_beton*hsp:,.0f}")
+        
+        st.divider()
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Generate Excel (Data Mentah)"):
+                df_dummy = pd.DataFrame({"Item": ["Beton"], "Harga": [vol_beton*hsp]})
+                excel_data = engine_export.create_excel_report(df_dummy, st.session_state['geo'])
+                st.download_button("📥 .XLSX", excel_data, "Laporan.xlsx")
+                
+        with c2:
+            if st.button("Generate PDF Report (Professional)"):
+                with st.spinner("Membuat PDF..."):
+                    pdf_bytes = pdf_engine.create_professional_report(st.session_state)
+                    st.download_button("📄 Download PDF", pdf_bytes, "Laporan_Resmi.pdf", "application/pdf")
