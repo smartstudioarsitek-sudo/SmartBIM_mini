@@ -87,8 +87,7 @@ def create_professional_report(session_state):
     
     # Ambil data aman (pakai .get biar tidak error jika kosong)
     fc = session_state.get('geo', {}).get('fc', '25') # Default mockup jika session kosong
-    # Note: fc disimpan di sidebar variable 'fc_in' di main.py, 
-    # tapi agar simple kita ambil dari report_struk atau default text
+    # Note: fc disimpan di sidebar variable 'fc_in' di main.py
     
     tgl = datetime.datetime.now().strftime("%d %B %Y")
     
@@ -168,9 +167,6 @@ def create_professional_report(session_state):
     pdf.cell(50, 10, "Total Harga (Rp)", 1, 1, 'C', True)
     
     # Data Tabel (Ambil dari logika main.py sederhana)
-    # Kita hitung ulang sedikit disini atau ambil dari session state jika ada
-    # Agar aman, kita ambil data struktur saja sebagai contoh
-    
     s_vol = session_state.get('structure', {}).get('vol_beton', 0)
     p_vol = session_state.get('pondasi', {}).get('fp_beton', 0)
     
@@ -179,7 +175,7 @@ def create_professional_report(session_state):
     # Baris 1: Struktur Atas
     pdf.cell(100, 8, "Pek. Beton Struktur Atas (Balok/Kolom)", 1, 0)
     pdf.cell(40, 8, f"{s_vol:.2f} m3", 1, 0, 'C')
-    pdf.cell(50, 8, "-", 1, 1, 'R') # Harga kita kosongkan krn logic harga ada di main.py
+    pdf.cell(50, 8, "-", 1, 1, 'R') 
     
     # Baris 2: Struktur Bawah
     pdf.cell(100, 8, "Pek. Beton Pondasi", 1, 0)
@@ -190,5 +186,6 @@ def create_professional_report(session_state):
     pdf.set_font('Arial', 'I', 10)
     pdf.multi_cell(0, 6, "Catatan: Harga total detail dapat dilihat pada lampiran Excel RAB yang terpisah.")
 
-    # Output ke Bytes
-    return pdf.output(dest='S').encode('latin-1')
+    # Output ke Bytes (FIXED FOR FPDF2)
+    # Tidak perlu .encode('latin-1') lagi karena output() sudah bytes
+    return bytes(pdf.output())
