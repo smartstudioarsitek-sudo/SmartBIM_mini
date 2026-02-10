@@ -98,7 +98,7 @@ class SmartBIM_Brain:
             return f"⚠️ Maaf, terjadi kesalahan pada AI: {str(e)}. Coba ganti model ke versi 'Lite' atau periksa API Key."
 
 # ==============================================================================
-# DEFINISI PERSONA
+# DEFINISI PERSONA (WAJIB ADA UNTUK MAIN.PY)
 # ==============================================================================
 PERSONAS = {
     "🦁 The Grandmaster": """
