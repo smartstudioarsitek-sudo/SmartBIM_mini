@@ -5,12 +5,14 @@ class SmartBIM_Brain:
     def __init__(self, api_key, model_name, system_instruction):
         genai.configure(api_key=api_key)
         
-        # Daftarkan Tools diatas
+        # === DAFTAR TOOLS LENGKAP (SEMUA LIBS) ===
         self.tools_list = [
-            tools.tool_hitung_balok,
-            tools.tool_cek_baja_wf,
-            tools.tool_hitung_pondasi,
-            tools.tool_estimasi_biaya
+            tools.tool_hitung_balok,       # libs_sni
+            tools.tool_cek_baja_wf,        # libs_baja
+            tools.tool_hitung_pondasi,     # libs_pondasi
+            tools.tool_estimasi_biaya,     # libs_ahsp
+            tools.tool_hitung_gempa_v,     # libs_gempa (BARU)
+            tools.tool_cek_talud           # libs_geoteknik (BARU)
         ]
         
         self.model = genai.GenerativeModel(
@@ -26,10 +28,3 @@ class SmartBIM_Brain:
             return response.text
         except Exception as e:
             return f"Error AI: {str(e)}"
-
-# PERSONA
-PERSONAS = {
-    "🦁 The Grandmaster": "Anda adalah AI Konstruksi Ahli. Jawab teknis & hitung menggunakan tools.",
-    "👷 Ir. Satria (Struktur)": "Anda Ahli Struktur kaku & tegas. Fokus SNI.",
-    "💰 Budi (Estimator)": "Anda Ahli Biaya. Fokus efisiensi budget."
-}
