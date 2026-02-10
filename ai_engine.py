@@ -1,67 +1,58 @@
+import google.generativeai as genai
 import libs_tools as tools
-import re
+import streamlit as st
 
-class SmartBIM_Agent:
-    def __init__(self):
-        self.history = []
+class SmartBIM_Brain:
+    def __init__(self, api_key, model_name, system_instruction):
+        # Konfigurasi API Google
+        genai.configure(api_key=api_key)
         
-    def process_query(self, user_input):
-        """
-        [ROUTER SEDERHANA - PENGGANTI LLM SEMENTARA]
-        Mendeteksi niat user dan memanggil Persona yang tepat.
-        """
-        user_input_lower = user_input.lower()
-        response = {"text": "", "persona": "", "data": None}
+        # Daftarkan Tools (Fungsi Python) agar dikenali AI
+        self.tools_list = [
+            tools.tool_hitung_balok,
+            tools.tool_estimasi_biaya_struktur,
+            tools.tool_cek_pondasi
+        ]
         
-        # --- LOGIKA ROUTING ---
+        # Inisialisasi Model dengan System Instruction (Persona)
+        self.model = genai.GenerativeModel(
+            model_name=model_name,
+            tools=self.tools_list,
+            system_instruction=system_instruction
+        )
         
-        # 1. DETEKSI: PERHITUNGAN BALOK (Ir. Satria)
-        if "balok" in user_input_lower and ("hitung" in user_input_lower or "cek" in user_input_lower):
-            # Ekstraksi parameter sederhana (Regex)
-            # Contoh input: "Hitung balok 300x500 beban 50"
-            try:
-                dims = re.findall(r'(\d+)x(\d+)', user_input_lower)
-                beban = re.findall(r'beban (\d+)', user_input_lower)
-                
-                b = int(dims[0][0]) if dims else 250
-                h = int(dims[0][1]) if dims else 400
-                mu = float(beban[0]) if beban else 40.0
-                
-                # CALL TOOL (Mencegah Halusinasi)
-                result = tools.tool_hitung_balok(b, h, 25, 400, mu, 6.0)
-                
-                response["persona"] = "Ir. Satria (Ahli Struktur)"
-                response["text"] = f"Baik, saya akan analisa keamanan strukturnya.\n\n{result['output_text']}\n\nSaran: Pastikan panjang penyaluran tulangan memenuhi SNI Pasal 25.4."
-                response["data"] = {"type": "balok", "val": result['data_teknis']}
-                
-            except:
-                response["persona"] = "Ir. Satria"
-                response["text"] = "Saya perlu data dimensi balok (b x h) dan Beban (kNm). Contoh: 'Hitung balok 300x600 beban 80'."
+        # Mulai Chat Session dengan History Otomatis
+        self.chat_session = self.model.start_chat(enable_automatic_function_calling=True)
 
-        # 2. DETEKSI: BIAYA / HARGA (Budi Estimator)
-        elif "biaya" in user_input_lower or "rab" in user_input_lower or "harga" in user_input_lower:
-            # Asumsi user minta hitung biaya dari perhitungan terakhir (Context Aware)
-            # Mock data volume
-            result = tools.tool_estimasi_biaya_struktur(2.5, 300) # 2.5 m3 beton, 300 kg besi
-            
-            response["persona"] = "Budi Estimator (QS & Biaya)"
-            response["text"] = f"Siap Bos. Saya hitung pakai harga pasar hari ini (AHSP Update).\n\n{result['output_text']}\n\nTips: Kalau pakai Fly Ash bisa hemat semen 15% loh."
-            
-        # 3. DETEKSI: PONDASI
-        elif "pondasi" in user_input_lower or "cakar ayam" in user_input_lower:
-            try:
-                lebar = re.findall(r'lebar (\d+)', user_input_lower)
-                b = float(lebar[0]) if lebar else 1.0
-                result = tools.tool_cek_pondasi(100, b, 150)
-                
-                response["persona"] = "Ir. Satria x Geoteknik"
-                response["text"] = result['output_text']
-            except:
-                response["text"] = "Input kurang jelas."
+    def ask(self, user_prompt):
+        try:
+            # Kirim pesan ke Gemini
+            response = self.chat_session.send_message(user_prompt)
+            return response.text
+        except Exception as e:
+            return f"⚠️ Error AI: {str(e)}. Pastikan API Key valid atau kuota tersedia."
 
-        # 4. CHAT UMUM
-        else:
-            response["persona"] = "Smart Engine Assistant"
-            response["text"] = "Halo! Saya Sistem Multi-Agen Smart BIM. Anda bisa meminta saya:\n1. Menghitung Struktur (Tanya Ir. Satria)\n2. Estimasi Biaya (Tanya Budi)\n3. Cek Pondasi\n\nSilakan ketik perintah teknis Anda."
-
-        return response
+# --- DEFINISI PERSONA (SYSTEM INSTRUCTIONS) ---
+PERSONAS = {
+    "🦁 The Grandmaster (All-in-One)": """
+        Anda adalah Sistem AI Konstruksi Tercanggih bernama 'EnginEx Titan'. 
+        Anda memiliki kemampuan multidisiplin: Struktur, Geoteknik, dan Estimasi Biaya.
+        Gunakan tools yang tersedia untuk menjawab pertanyaan teknis secara akurat.
+        Jangan pernah menebak angka perhitungan! Selalu panggil tool.
+        Gaya bicara: Profesional, Berwibawa, namun Solutif.
+    """,
+    "👷 Ir. Satria (Ahli Struktur)": """
+        Anda adalah Ir. Satria, Insinyur Struktur Senior. Fokus Anda adalah SNI 2847 dan SNI 1726.
+        Anda sangat konservatif dan mementingkan keamanan (Safety Factor).
+        Jika user meminta desain yang boros, Anda tidak peduli biaya, yang penting aman.
+    """,
+    "💰 Budi (Estimator RAB)": """
+        Anda adalah Budi, Quantity Surveyor. Fokus Anda adalah Uang, Rupiah, dan Efisiensi.
+        Selalu tawarkan opsi material yang lebih murah jika memungkinkan.
+        Gunakan tool estimasi biaya setiap kali user bertanya soal harga.
+    """,
+    "📋 Siti (Drafter & Admin)": """
+        Anda adalah Siti. Fokus Anda adalah kelengkapan data dan visualisasi.
+        Anda membantu user menyiapkan data sebelum dihitung oleh insinyur.
+    """
+}
