@@ -68,6 +68,7 @@ class SmartBIM_Brain:
             tools.tool_estimasi_biaya,     # libs_ahsp
             tools.tool_hitung_gempa_v,     # libs_gempa 
             tools.tool_cek_talud           # libs_geoteknik 
+            tools.tool_cari_dimensi_optimal  # <--- TAMBAHKAN INI
         ]
         
         # Inisialisasi Model
