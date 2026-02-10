@@ -1,68 +1,77 @@
+import pandas as pd
 import numpy as np
-from scipy.optimize import minimize
+import libs_sni as sni
 
-class StructuralOptimizer:
+class BeamOptimizer:
     def __init__(self, fc, fy, harga_satuan):
-        self.fc = fc  # MPa
-        self.fy = fy  # MPa
-        self.harga = harga_satuan # Dict {beton: Rp/m3, baja: Rp/kg, bekisting: Rp/m2}
+        self.fc = fc
+        self.fy = fy
+        # Harga Satuan (Default jika user tidak input)
+        self.h_beton = harga_satuan.get('beton', 1100000) # per m3
+        self.h_baja = harga_satuan.get('baja', 14000)     # per kg
+        self.h_bekisting = harga_satuan.get('bekisting', 150000) # per m2
 
-    def objective_function(self, x):
+    def cari_dimensi_optimal(self, Mu_kNm, bentang_m):
         """
-        Fungsi Biaya Total (Cost Function)
-        x[0] = b (lebar), x[1] = h (tinggi), x[2] = As (luas tulangan)
+        Mencari dimensi b x h yang paling murah namun Aman (Phi Mn >= Mu)
         """
-        b, h, As = x
-        rho_baja = 7850 # kg/m3
+        options = []
         
-        # Volume per 1 meter panjang
-        vol_beton = b * h
-        berat_baja = As * rho_baja 
-        luas_bekisting = 2*h + b # Sisi kiri + kanan + bawah
+        # 1. Tentukan Range Pencarian (Grid Search)
+        # Lebar (b): 200mm s/d 600mm (interval 50mm)
+        range_b = range(200, 650, 50)
         
-        cost = (vol_beton * self.harga['beton']) + \
-               (berat_baja * self.harga['baja']) + \
-               (luas_bekisting * self.harga['bekisting'])
-        return cost
+        # Tinggi (h): 300mm s/d 1000mm (interval 50mm)
+        # Rule of thumb: h minimal 1/12 sampai 1/10 bentang
+        h_min_rec = int(bentang_m * 1000 / 15) 
+        range_h = range(max(300, h_min_rec), 1050, 50)
+        
+        engine_sni = sni.SNI_Concrete_2847(self.fc, self.fy)
 
-    def constraint_capacity(self, x, Mu):
-        """
-        Batasan Kekuatan: phi * Mn >= Mu
-        Mengembalikan nilai non-negatif jika syarat terpenuhi
-        """
-        b, h, As = x
-        phi = 0.9
+        # 2. Iterasi Semua Kemungkinan
+        for b in range_b:
+            for h in range_h:
+                # Rule Geometri: Tinggi harus >= Lebar (umumnya)
+                if h < b: continue
+                if h > 3 * b: continue # Jangan terlalu pipih (Stabilitas)
+                
+                # Hitung Kebutuhan Tulangan (As)
+                ds = 40 + 10 + 6 # Selimut + Sengkang + 1/2 D13
+                try:
+                    As_req = engine_sni.kebutuhan_tulangan(Mu_kNm, b, h, ds)
+                except:
+                    continue # Skip jika error matematika
+                
+                # Cek Rasio Tulangan (Rho)
+                d = h - ds
+                rho = As_req / (b * d)
+                rho_max = 0.025 # Limit praktis agar tidak macet saat cor
+                
+                if rho > rho_max: continue # Skip, tulangan terlalu padat
+                
+                # 3. Hitung Biaya per Meter Lari
+                vol_beton = (b/1000) * (h/1000) * 1.0
+                berat_baja = (As_req * 1.0 * 7850) / 1e6 # Konversi mm2 ke m3 ke kg
+                # Asumsi tulangan sengkang & susut 30% dari utama
+                berat_baja_total = berat_baja * 1.3 
+                luas_bekisting = (2 * (h/1000)) + (b/1000) # Kiri + Kanan + Bawah
+                
+                biaya = (vol_beton * self.h_beton) + \
+                        (berat_baja_total * self.h_baja) + \
+                        (luas_bekisting * self.h_bekisting)
+                        
+                options.append({
+                    'b': b, 'h': h, 'As': As_req, 
+                    'Biaya': biaya,
+                    'Rho': rho * 100
+                })
         
-        # Hitung a (tinggi blok tekan)
-        a = (As * self.fy) / (0.85 * self.fc * b)
-        d = h - 0.04 # Asumsi selimut 40mm
+        # 4. Urutkan dari yang Termurah
+        if not options:
+            return None
+            
+        df_opt = pd.DataFrame(options)
+        df_opt = df_opt.sort_values(by='Biaya', ascending=True)
         
-        # Momen Nominal
-        Mn = As * self.fy * (d - a/2)
-        
-        # Constraint: Kapasitas - Beban >= 0
-        return (phi * Mn) - (Mu * 1e6) # Mu konversi ke Nmm
-
-    def optimize_beam(self, Mu_kNm):
-        # Initial Guess (Tebakan awal) [b=0.3, h=0.5, As=0.001]
-        x0 = [0.3, 0.5, 0.0015] 
-        
-        # Batasan (Bounds)
-        # b min 200mm, h min 300mm
-        bounds = ((0.2, 0.8), (0.3, 1.0), (0.0005, 0.01)) 
-        
-        # Constraints Dictionary
-        cons = ({'type': 'ineq', 'fun': self.constraint_capacity, 'args': (Mu_kNm,)})
-        
-        # Eksekusi SLSQP
-        res = minimize(self.objective_function, x0, method='SLSQP', bounds=bounds, constraints=cons)
-        
-        if res.success:
-            return {
-                "b_opt": round(res.x[0] * 1000, 0), # mm
-                "h_opt": round(res.x[1] * 1000, 0), # mm
-                "As_opt": round(res.x[2] * 1e6, 2), # mm2
-                "Cost": round(res.fun, 0)
-            }
-        else:
-            return "Optimasi Gagal"
+        # Ambil Top 3 Solusi
+        return df_opt.head(3).to_dict('records')
