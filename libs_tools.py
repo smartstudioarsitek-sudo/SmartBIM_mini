@@ -2,52 +2,71 @@ import libs_sni as sni
 import libs_ahsp as ahsp
 import libs_pondasi as fdn
 import libs_baja as steel
+import libs_gempa as quake  # <--- NEW
+import libs_geoteknik as geo # <--- NEW
 
-# --- WRAPPER FUNCTION AGAR BISA DIPANGGIL AI ---
-
-def tool_hitung_balok(b_mm, h_mm, fc, fy, mu_kNm, l_m):
+# --- 1. TOOL STRUKTUR BETON (SNI 2847) ---
+def tool_hitung_balok(b_mm, h_mm, fc, fy, mu_kNm):
     """
-    [TOOL IR. SATRIA] Menghitung tulangan balok beton (SNI 2847).
+    [TOOL SATRIA] Menghitung tulangan balok beton.
     """
-    # Panggil Logic Lama Anda
     engine = sni.SNI_Concrete_2847(fc, fy)
     as_req = engine.kebutuhan_tulangan(mu_kNm, b_mm, h_mm, 40)
-    
-    # Hitung Rekomendasi Tulangan
     dia_tul = 16
     n_bars = int(as_req / (0.25 * 3.14 * dia_tul**2)) + 1
-    
-    return {
-        "output_text": f"Analisa Balok {b_mm}x{h_mm}mm (fc'{fc}):\n- Momen Perlu: {mu_kNm} kNm\n- Tulangan Perlu: {as_req:.2f} mm2\n- Rekomendasi: {n_bars} D{dia_tul}",
-        "data_teknis": {"as": as_req, "n": n_bars}
-    }
+    return f"Balok {b_mm}x{h_mm} (Mu={mu_kNm}kNm) butuh tulangan: {as_req:.2f} mm2. Rekomendasi: {n_bars} D{dia_tul}."
 
+# --- 2. TOOL STRUKTUR BAJA (SNI 1729) ---
 def tool_cek_baja_wf(mu_kNm, bentang_m):
     """
-    [TOOL IR. SATRIA] Cek kapasitas profil baja WF 300x150 standar.
+    [TOOL SATRIA] Cek kapasitas profil baja WF 300x150 (Default).
     """
-    # Panggil Logic Lama Anda
     wf_data = {'Zx': 481} # WF 300x150
-    engine = steel.SNI_Steel_1729(240, 410) # BJ 37
+    engine = steel.SNI_Steel_1729(240, 410)
     res = engine.cek_balok_lentur(mu_kNm, wf_data, bentang_m)
-    return res
+    return f"Analisa WF 300x150: Ratio {res['Ratio']:.2f}. Status: {res['Status']}."
 
+# --- 3. TOOL PONDASI (DANGKAL) ---
 def tool_hitung_pondasi(beban_pu, lebar_m):
     """
-    [TOOL GEOTEKNIK] Cek keamanan pondasi telapak.
+    [TOOL GEOTEKNIK] Cek keamanan pondasi telapak (Footplate).
     """
-    # Panggil Logic Lama Anda
-    engine = fdn.Foundation_Engine(150.0) # Daya dukung asumsi 150
+    engine = fdn.Foundation_Engine(150.0)
     res = engine.hitung_footplate(beban_pu, lebar_m, lebar_m, 300)
-    return res
+    return f"Pondasi {lebar_m}x{lebar_m}m (Pu={beban_pu}kN): {res['status']}. Safety Factor: {res['ratio_safety']:.2f}."
 
+# --- 4. TOOL ESTIMASI BIAYA (AHSP) ---
 def tool_estimasi_biaya(volume_beton):
     """
-    [TOOL BUDI ESTIMATOR] Hitung biaya beton per m3.
+    [TOOL BUDI] Hitung biaya beton per m3 (K-250).
     """
     engine = ahsp.AHSP_Engine()
-    # Harga Dasar Dummy (Karena AI tidak baca sidebar)
     h_dasar = {'semen': 1500, 'pasir': 250000, 'split': 300000, 'pekerja': 110000, 'tukang': 135000}
     hsp = engine.hitung_hsp('beton_k250', h_dasar, h_dasar)
     total = volume_beton * hsp
-    return {"HSP_Beton": hsp, "Total_Biaya": total}
+    return f"Harga Satuan Beton K-250: Rp {hsp:,.0f}/m3. Total ({volume_beton} m3): Rp {total:,.0f}"
+
+# --- 5. TOOL GEMPA (SNI 1726) [BARU] ---
+def tool_hitung_gempa_v(berat_total_kn, lokasi_tanah):
+    """
+    [TOOL GEMPA] Hitung Gaya Geser Dasar (V) Gempa.
+    lokasi_tanah: 'Lunak' (SE), 'Sedang' (SD), atau 'Keras' (SC).
+    """
+    # Mapping input text ke kode SNI
+    site_map = {'lunak': 'SE', 'sedang': 'SD', 'keras': 'SC'}
+    kode_site = site_map.get(lokasi_tanah.lower(), 'SD')
+    
+    # Asumsi Ss=0.8, S1=0.4 (Wilayah Gempa Sedang)
+    engine = quake.SNI_Gempa_1726(0.8, 0.4, kode_site)
+    V, sds, sd1 = engine.hitung_base_shear(berat_total_kn, 8.0) # R=8
+    return f"Analisa Gempa (Tanah {kode_site}): Base Shear V = {V:.2f} kN (SDS={sds:.2f})."
+
+# --- 6. TOOL TALUD & PILE (GEOTEKNIK) [BARU] ---
+def tool_cek_talud(tinggi_m):
+    """
+    [TOOL GEOTEKNIK] Cek kestabilan dinding penahan tanah (Talud Batu Kali).
+    """
+    # Asumsi tanah: Gamma=18, Phi=30, c=5
+    engine = geo.Geotech_Engine(18.0, 30.0, 5.0)
+    res = engine.hitung_talud_batu_kali(tinggi_m, 0.4, 1.5) # Dimensi standar
+    return f"Talud Tinggi {tinggi_m}m: SF Guling={res['SF_Guling']:.2f}, SF Geser={res['SF_Geser']:.2f}. Status: {res['Status']}."
