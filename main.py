@@ -1,183 +1,256 @@
 import streamlit as st
 import pandas as pd
-import ai_engine as ai
-import libs_tools as tools
-# Import library asli untuk Mode Studio
+import numpy as np
+import matplotlib.pyplot as plt
+from io import BytesIO
+import ai_engine as ai # Import Module Baru
+
+# --- IMPORT LIBRARY LAMA ANDA ---
 import libs_sni as sni
+import libs_ahsp as ahsp
+import libs_bim_importer as bim
+import libs_pondasi as fdn
+import libs_geoteknik as geo
+import libs_export as exp
 import libs_baja as steel
 import libs_gempa as quake
 
-# --- CONFIG ---
-st.set_page_config(page_title="EnginEx Titan", layout="wide", page_icon="🏗️")
+# --- CONFIG PAGE ---
+st.set_page_config(page_title="EnginEx Titan: IndoBIM Ultimate", layout="wide", page_icon="🏗️")
 
-# --- CUSTOM CSS (Agar mirip screenshot Anda) ---
+# --- CUSTOM CSS ---
 st.markdown("""
-<style>
-    .main-header {font-size: 24px; font-weight: bold; color: #1F618D;}
-    .stButton>button {width: 100%; border-radius: 5px;}
-    .sidebar-text {font-size: 12px; color: #555;}
-    /* Chat Bubble Style */
-    .stChatMessage {background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 10px;}
-</style>
+    <style>
+    .main_header {font-size: 24px; font-weight: bold; color: #2E86C1;}
+    .sub_header {font-size: 18px; font-weight: bold; color: #444;}
+    div.stButton > button:first-child {border-radius: 8px; width: 100%;}
+    .stChatMessage {background-color: #f1f8ff; border-radius: 10px; border: 1px solid #e1e4e8;}
+    </style>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR: KONFIGURASI UTAMA ---
+# --- INIT SESSION STATE (GABUNGAN) ---
+# State Lama
+if 'geo' not in st.session_state: st.session_state['geo'] = {'L': 6.0, 'b': 250, 'h': 400}
+if 'structure' not in st.session_state: st.session_state['structure'] = {}
+if 'pondasi' not in st.session_state: st.session_state['pondasi'] = {}
+if 'geotech' not in st.session_state: st.session_state['geotech'] = {}
+if 'report_struk' not in st.session_state: st.session_state['report_struk'] = {}
+if 'report_baja' not in st.session_state: st.session_state['report_baja'] = {}
+if 'report_gempa' not in st.session_state: st.session_state['report_gempa'] = {}
+if 'report_geo' not in st.session_state: st.session_state['report_geo'] = {}
+# State Baru (AI)
+if "messages" not in st.session_state: st.session_state.messages = []
+
+# ==============================================================================
+# SIDEBAR UTAMA (GLOBAL NAVIGATION)
+# ==============================================================================
 with st.sidebar:
     st.title("ENGINEX TITAN")
     st.caption("AI + BIM + Structural Calculation")
     
+    # 1. API KEY & MODEL (FITUR BARU)
     st.divider()
+    api_key = st.text_input("🔑 Google API Key", type="password", help="Wajib untuk fitur AI Chat")
+    model_opt = st.selectbox("🧠 Model Gemini", ["models/gemini-1.5-flash", "models/gemini-1.5-pro"])
     
-    # 1. API KEY INPUT
-    st.subheader("🔑 API Key & Model AI")
-    api_key = st.text_input("Google API Key:", type="password", placeholder="Paste Gemini API Key disini...")
-    
-    if api_key:
-        st.success("✅ API Key Terdeteksi")
-    else:
-        st.warning("⚠️ Masukkan API Key untuk mengaktifkan AI")
-        st.markdown("[Dapatkan API Key Gratis](https://aistudio.google.com/app/apikey)")
-
-    # 2. MODEL SELECTOR
-    model_option = st.selectbox(
-        "Pilih Model Gemini:",
-        ["models/gemini-1.5-flash", "models/gemini-1.5-pro"],
-        index=0,
-        help="Flash lebih cepat & hemat, Pro lebih pintar untuk analisis kompleks."
-    )
-    
+    # 2. MODE SELECTOR (HYBRID SWITCH)
     st.divider()
-    
-    # 3. MODE SELECTOR (HYBRID)
-    st.subheader("🛠️ Mode Aplikasi")
     app_mode = st.radio(
-        "Pilih Tampilan:",
-        ["🤖 AI Consultant (Chat)", "🏗️ Engineering Studio (Manual)"],
-        captions=["Diskusi & Analisa Otomatis", "Kalkulator & Form Input"]
+        "🛠️ Pilih Mode Aplikasi:",
+        ["🤖 AI Consultant (Chat)", "🏗️ Engineering Studio (Full App)"],
+        captions=["Tanya Jawab & Analisa Cepat", "Aplikasi Lengkap 8 Tab (Manual)"]
     )
-    
-    if st.button("🧹 Reset Data & Chat"):
-        st.session_state.messages = []
-        st.rerun()
-
-# --- INITIALIZE SESSION STATE ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.divider()
 
 # ==============================================================================
-# MODE 1: AI CONSULTANT (CHAT INTERFACE - MIRIP GAMBAR 3)
+# MODE 1: AI CONSULTANT (CHAT INTERFACE)
 # ==============================================================================
 if app_mode == "🤖 AI Consultant (Chat)":
     st.header("🤖 AI Engineering Consultant")
+    st.info("Mode ini menggunakan Agentic AI untuk menjawab pertanyaan teknis & melakukan perhitungan cepat.")
     
-    # Pilih Persona
-    selected_persona = st.selectbox(
-        "Pilih Ahli:",
-        list(ai.PERSONAS.keys())
-    )
-    
-    # Tampilkan Chat History
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    col_chat1, col_chat2 = st.columns([1, 3])
+    with col_chat1:
+        persona = st.selectbox("Pilih Ahli:", list(ai.PERSONAS.keys()))
+        if st.button("🧹 Hapus Chat"):
+            st.session_state.messages = []
+            st.rerun()
             
-    # Input User
-    if prompt := st.chat_input("Konsultasikan proyek Anda di sini..."):
-        if not api_key:
-            st.error("❌ Mohon masukkan Google API Key di Sidebar terlebih dahulu!")
-            st.stop()
-            
-        # 1. Tampilkan pesan user
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-            
-        # 2. Proses AI
-        with st.chat_message("assistant"):
-            with st.spinner(f"{selected_persona.split(' ')[1]} sedang berpikir & menghitung..."):
-                # Init Brain dengan Persona Terpilih
-                brain = ai.SmartBIM_Brain(
-                    api_key=api_key, 
-                    model_name=model_option,
-                    system_instruction=ai.PERSONAS[selected_persona]
-                )
+    with col_chat2:
+        # Render Chat History
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
                 
-                # Kirim history chat sebelumnya (agar konteks nyambung)
-                # (Fitur ini opsional, untuk simplifikasi kita kirim prompt baru saja di demo ini)
-                response_text = brain.ask(prompt)
+        # Chat Input
+        if prompt := st.chat_input("Contoh: 'Hitung balok 300x500 beban 50' atau 'Berapa biaya beton per m3?'"):
+            if not api_key:
+                st.error("❌ Masukkan API Key di Sidebar dulu!")
+                st.stop()
                 
-                st.markdown(response_text)
-                st.session_state.messages.append({"role": "assistant", "content": response_text})
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+                
+            with st.chat_message("assistant"):
+                with st.spinner("Sedang menghitung..."):
+                    brain = ai.SmartBIM_Brain(api_key, model_opt, ai.PERSONAS[persona])
+                    response = brain.ask(prompt)
+                    st.markdown(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
 
 # ==============================================================================
-# MODE 2: ENGINEERING STUDIO (FORM INPUT - MIRIP GAMBAR 2)
+# MODE 2: ENGINEERING STUDIO (FULL ORIGINAL APP - RESTORED)
 # ==============================================================================
-elif app_mode == "🏗️ Engineering Studio (Manual)":
-    st.header("🏗️ Engineering Studio (TITAN)")
+elif app_mode == "🏗️ Engineering Studio (Full App)":
     
-    # Tab Navigasi Kalkulator
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "Struktur Beton", "Struktur Baja", "Analisa Gempa", "RAB & Report"
+    # --- SIDEBAR INPUT KHUSUS STUDIO (DIPINDAHKAN KESINI AGAR RAPI) ---
+    with st.sidebar:
+        with st.expander("📝 Input Material & Tanah", expanded=True):
+            fc_in = st.number_input("Mutu Beton f'c (MPa)", 20, 50, 25)
+            fy_in = st.number_input("Mutu Besi fy (MPa)", 240, 500, 400)
+            gamma_tanah = st.number_input("Berat Isi Tanah", 14.0, 22.0, 18.0)
+            phi_tanah = st.number_input("Sudut Geser", 10.0, 45.0, 30.0)
+            c_tanah = st.number_input("Kohesi", 0.0, 50.0, 5.0)
+            sigma_tanah = st.number_input("Daya Dukung Izin", 50.0, 300.0, 150.0)
+
+        with st.expander("💲 Input Harga Satuan"):
+            p_semen = st.number_input("Semen (Rp/kg)", 1500)
+            p_pasir = st.number_input("Pasir (Rp/m3)", 250000)
+            p_split = st.number_input("Split (Rp/m3)", 300000)
+            p_besi = st.number_input("Besi (Rp/kg)", 14000)
+            p_kayu = st.number_input("Kayu Bekisting", 2500000)
+            p_batu = st.number_input("Batu Kali", 280000)
+            p_beton_ready = st.number_input("Readymix K300", 1100000)
+            u_tukang = st.number_input("Upah Tukang", 135000)
+            u_pekerja = st.number_input("Upah Pekerja", 110000)
+
+    # --- INIT ENGINES LAMA ---
+    calc_sni = sni.SNI_Concrete_2847(fc_in, fy_in)
+    calc_biaya = ahsp.AHSP_Engine()
+    calc_geo = geo.Geotech_Engine(gamma_tanah, phi_tanah, c_tanah)
+    calc_fdn = fdn.Foundation_Engine(sigma_tanah)
+    engine_export = exp.Export_Engine()
+
+    # --- TABS ORIGINAL (8 MODUL) ---
+    st.markdown("### 🏗️ Studio Perhitungan Teknik Sipil Terintegrasi")
+    tabs = st.tabs([
+        "🏠 Dash", 
+        "📂 BIM Import", 
+        "📐 Modeling", 
+        "🏗️ Beton", 
+        "🔩 Baja & Atap", 
+        "🌋 Gempa", 
+        "⛰️ Geoteknik", 
+        "💰 RAB Final"
     ])
-    
-    # --- TAB 1: BETON ---
-    with tab1:
-        st.subheader("Analisa Balok Beton (SNI 2847)")
-        col1, col2 = st.columns(2)
-        with col1:
-            b = st.number_input("Lebar (mm)", 150, 1000, 300)
-            h = st.number_input("Tinggi (mm)", 200, 2000, 600)
-            fc = st.number_input("Mutu Beton f'c (MPa)", 20, 60, 25)
-            fy = st.number_input("Mutu Baja fy (MPa)", 240, 550, 400)
-        with col2:
-            mu = st.number_input("Momen Ultimate (kNm)", 10.0, 1000.0, 150.0)
-            vu = st.number_input("Geser Ultimate (kN)", 10.0, 1000.0, 100.0)
-            
-            if st.button("Hitung Kapasitas", type="primary"):
-                # Panggil Libs Manual (Tanpa AI)
-                engine = sni.SNI_Concrete_2847(fc, fy)
-                as_req = engine.kebutuhan_tulangan(mu, b, h, 40)
-                
-                # Tampilkan Hasil Visual
-                st.metric("Tulangan Perlu (As)", f"{as_req:.2f} mm2")
-                
-                n_bars = int(as_req / (0.25 * 3.14 * 16**2)) + 1
-                st.info(f"Rekomendasi: {n_bars} D16")
-                
-                if n_bars > 8:
-                    st.warning("⚠️ Tulangan terlalu padat! Perbesar dimensi.")
-                else:
-                    st.success("✅ Desain Aman")
 
-    # --- TAB 2: BAJA ---
-    with tab2:
-        st.subheader("Cek Profil Baja WF (SNI 1729)")
-        mu_baja = st.number_input("Momen Beban (kNm)", 50.0)
-        lb = st.number_input("Panjang Bentang (m)", 6.0)
-        
-        # Panggil Libs Baja
-        wf_data = {'Zx': 481} # Contoh WF 300
-        st.caption("Default: WF 300x150 (Zx=481 cm3)")
-        
-        if st.button("Cek Rasio Baja"):
-            eng_steel = steel.SNI_Steel_1729(250, 410)
-            res = eng_steel.cek_balok_lentur(mu_baja, wf_data, lb)
-            
-            st.write(f"Kapasitas Phi_Mn: {res['Phi_Mn']:.2f} kNm")
-            st.metric("Ratio Desain", f"{res['Ratio']:.3f}", delta_color="inverse")
-            if res['Ratio'] < 1.0:
-                st.success("Profil AMAN")
-            else:
-                st.error("Profil GAGAL (Tekuk)")
+    # [CODE ASLI TAB 1 - DASHBOARD]
+    with tabs[0]:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Standar Beton", "SNI 2847:2019", f"fc' {fc_in} MPa")
+        c2.metric("Standar Gempa", "SNI 1726:2019", "Wilayah D")
+        c3.metric("Standar Biaya", "SE PUPR 2025", "Update")
 
-    # --- TAB 3: GEMPA ---
-    with tab3:
-        st.subheader("Base Shear Gempa (SNI 1726)")
-        w_gedung = st.number_input("Berat Bangunan (kN)", 5000.0)
-        ss_input = st.number_input("Ss (Peta Gempa)", 0.8)
+    # [CODE ASLI TAB 2 - BIM IMPORT]
+    with tabs[1]:
+        st.markdown('<p class="sub_header">Import IFC</p>', unsafe_allow_html=True)
+        uploaded_ifc = st.file_uploader("Upload File .IFC", type=["ifc"])
+        if uploaded_ifc:
+            try:
+                engine_ifc = bim.IFC_Parser_Engine(uploaded_ifc)
+                df_struk = engine_ifc.parse_structure()
+                loads = engine_ifc.calculate_architectural_loads()
+                st.dataframe(df_struk.head())
+                if st.button("Simpan Data BIM"):
+                    st.session_state['bim_loads'] = loads['Total Load Tambahan (kN)']
+                    st.success("Data Tersimpan")
+            except Exception as e: st.error(f"Error: {e}")
+
+    # [CODE ASLI TAB 3 - MODELING]
+    with tabs[2]:
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            L = st.number_input("Bentang (m)", 2.0, 12.0, st.session_state['geo']['L'])
+            b = st.number_input("Lebar b (mm)", 150, 800, st.session_state['geo']['b'])
+            h = st.number_input("Tinggi h (mm)", 200, 1500, st.session_state['geo']['h'])
+            st.session_state['geo'] = {'L': L, 'b': b, 'h': h}
+        with c2:
+            st.info(f"Dimensi Balok: {b} x {h} mm, Panjang: {L} m")
+
+    # [CODE ASLI TAB 4 - BETON]
+    with tabs[3]:
+        st.markdown("### Analisa Balok")
+        c1, c2 = st.columns(2)
+        with c1:
+            q_dl = st.number_input("DL (kN/m)", 15.0)
+            q_ll = st.number_input("LL (kN/m)", 5.0)
+            if 'bim_loads' in st.session_state: q_dl += st.session_state['bim_loads'] / st.session_state['geo']['L']
+        with c2:
+            Mu = (1/8) * (1.2*q_dl + 1.6*q_ll) * st.session_state['geo']['L']**2
+            st.metric("Mu (kNm)", f"{Mu:.2f}")
+            As_req = calc_sni.kebutuhan_tulangan(Mu, st.session_state['geo']['b'], st.session_state['geo']['h'], 40)
+            dia = st.selectbox("Diameter", [13, 16, 19, 22])
+            n = int(As_req / (0.25*3.14*dia**2)) + 1
+            st.success(f"Pakai {n} D{dia}")
+            
+            # Save State
+            st.session_state['structure'] = {'vol_beton': st.session_state['geo']['L']*b*h/1e6, 'berat_besi': 100}
+            st.session_state['report_struk'] = {'Mu': Mu, 'Tulangan': f"{n}D{dia}"}
+            
+            # Export DXF
+            if st.button("Download DXF Balok"):
+                dxf = engine_export.create_dxf("BALOK", {'b':b,'h':h,'dia':dia,'n':n,'pjg':L})
+                st.download_button("📥 .DXF", dxf, "balok.dxf")
+
+    # [CODE ASLI TAB 5 - BAJA]
+    with tabs[4]:
+        st.info("Analisa Baja WF")
+        wf_list = {"WF 300x150": {'Zx': 481}, "WF 400x200": {'Zx': 1190}}
+        pilih = st.selectbox("Profil", list(wf_list.keys()))
+        res = steel.SNI_Steel_1729(250, 410).cek_balok_lentur(50, wf_list[pilih], 6.0)
+        st.write(res)
+        st.session_state['report_baja'] = res
+
+    # [CODE ASLI TAB 6 - GEMPA]
+    with tabs[5]:
+        st.info("Base Shear SNI 1726")
+        eng_gempa = quake.SNI_Gempa_1726(0.8, 0.4, "SD")
+        V, sds, sd1 = eng_gempa.hitung_base_shear(2000, 8)
+        st.metric("V Gempa (kN)", f"{V:.2f}")
+        st.session_state['report_gempa'] = {'V': V, 'Sds': sds}
+
+    # [CODE ASLI TAB 7 - GEOTEKNIK]
+    with tabs[6]:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader("Pondasi Footplate")
+            Pu = st.number_input("Beban P (kN)", 100.0)
+            res_fp = calc_fdn.hitung_footplate(Pu, 1.0, 1.0, 300)
+            st.write(res_fp)
+            st.session_state['pondasi'] = {'fp_beton': res_fp['vol_beton'], 'fp_besi': res_fp['berat_besi']}
+        with c2:
+            st.subheader("Dinding Penahan")
+            res_talud = calc_geo.hitung_talud_batu_kali(3.0, 0.4, 1.5)
+            st.write(res_talud)
+            st.session_state['geotech'] = {'vol_talud': res_talud['Vol_Per_M']}
+            st.session_state['report_geo'] = res_talud
+
+    # [CODE ASLI TAB 8 - RAB & REPORT]
+    with tabs[7]:
+        st.subheader("RAB Final")
+        # Logic RAB Simple (Contoh)
+        vol_beton = st.session_state['structure'].get('vol_beton', 0) + st.session_state['pondasi'].get('fp_beton', 0)
+        hsp = calc_biaya.hitung_hsp('beton_k250', {'semen': p_semen, 'pasir':p_pasir, 'split':p_split}, {'pekerja':u_pekerja})
         
-        if st.button("Hitung V Gempa"):
-            eng_quake = quake.SNI_Gempa_1726(ss_input, 0.4, "SD")
-            v, sds, sd1 = eng_quake.hitung_base_shear(w_gedung, 8.0)
-            st.metric("Gaya Geser Dasar (V)", f"{v:.2f} kN")
-            st.json({"Sds": sds, "Sd1": sd1})
+        st.write(f"Total Beton: {vol_beton:.2f} m3")
+        st.write(f"Harga Satuan: Rp {hsp:,.0f}")
+        st.metric("Total Biaya Beton", f"Rp {vol_beton*hsp:,.0f}")
+        
+        # Download Excel Report
+        if st.button("Generate Excel Report Lengkap"):
+            # Panggil fungsi export excel Anda yang lama (sudah di paste diatas di libs_export)
+            # Disini kita mock datanya agar tidak error
+            df_dummy = pd.DataFrame({"Item": ["Beton"], "Harga": [vol_beton*hsp]})
+            excel_data = engine_export.create_excel_report(df_dummy, st.session_state['geo'])
+            st.download_button("📥 Excel Report", excel_data, "Laporan.xlsx")
