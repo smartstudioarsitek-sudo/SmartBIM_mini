@@ -44,6 +44,9 @@ if "messages" not in st.session_state: st.session_state.messages = []
 # ==============================================================================
 # SIDEBAR UTAMA (GLOBAL NAVIGATION)
 # ==============================================================================
+# ... (kode sebelumnya di main.py) ...
+
+# --- SIDEBAR UTAMA (GLOBAL NAVIGATION) ---
 with st.sidebar:
     st.title("ENGINEX TITAN")
     st.caption("AI + BIM + Structural Calculation")
@@ -51,7 +54,34 @@ with st.sidebar:
     # 1. API KEY & MODEL (FITUR BARU)
     st.divider()
     api_key = st.text_input("🔑 Google API Key", type="password", help="Wajib untuk fitur AI Chat")
-    model_opt = st.selectbox("🧠 Model Gemini", ["models/gemini-1.5-flash", "models/gemini-1.5-pro"])
+    
+    # === UPDATE BAGIAN INI (LIST MODEL BARU) ===
+    st.caption("Pilih Model Gemini:")
+    model_opt = st.selectbox(
+        "🧠 Versi Model",
+        [
+            # --- Model Standar (Stabil) ---
+            "models/gemini-1.5-pro",
+            "models/gemini-1.5-flash",
+            
+            # --- Model Seri 2.0 & 2.5 (Sesuai Request) ---
+            "models/gemini-2.0-flash",
+            "models/gemini-2.0-flash-001",
+            "models/gemini-2.0-flash-lite",
+            "models/gemini-2.0-flash-lite-001",
+            "models/gemini-2.0-flash-exp-image-generation",
+            
+            # --- Model Eksperimental / Preview Masa Depan ---
+            "models/gemini-2.5-flash",
+            "models/gemini-2.5-flash-lite",
+            "models/gemini-2.5-flash-image",
+            "models/gemini-2.5-computer-use-preview-10-2025",
+            "models/deep-research-pro-"
+        ],
+        index=2, # Default kita set ke gemini-2.0-flash (Index ke-2) agar lebih baru
+        help="Jika Error 404, berarti akun API Key Anda belum memiliki akses ke model tersebut. Coba ganti ke versi 1.5 atau 2.0 Flash."
+    )
+    # ===========================================
     
     # 2. MODE SELECTOR (HYBRID SWITCH)
     st.divider()
@@ -61,6 +91,8 @@ with st.sidebar:
         captions=["Tanya Jawab & Analisa Cepat", "Aplikasi Lengkap 8 Tab (Manual)"]
     )
     st.divider()
+
+# ... (sisa kode main.py biarkan tetap sama) ...
 
 # ==============================================================================
 # MODE 1: AI CONSULTANT (CHAT INTERFACE)
@@ -254,3 +286,4 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
             df_dummy = pd.DataFrame({"Item": ["Beton"], "Harga": [vol_beton*hsp]})
             excel_data = engine_export.create_excel_report(df_dummy, st.session_state['geo'])
             st.download_button("📥 Excel Report", excel_data, "Laporan.xlsx")
+
