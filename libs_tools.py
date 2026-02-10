@@ -4,6 +4,7 @@ import libs_pondasi as fdn
 import libs_baja as steel
 import libs_gempa as quake  # Module Baru
 import libs_geoteknik as geo # Module Baru
+import libs_optimizer as opt # <--- NEW MODULE
 
 # --- 1. TOOL STRUKTUR BETON (SNI 2847) ---
 def tool_hitung_balok(b_mm, h_mm, fc, fy, mu_kNm):
@@ -82,3 +83,26 @@ def tool_cek_talud(tinggi_m):
     res = engine.hitung_talud_batu_kali(tinggi_m, 0.4, 1.5) # Dimensi standar
     
     return f"Talud Tinggi {tinggi_m}m: SF Guling={res['SF_Guling']:.2f}, SF Geser={res['SF_Geser']:.2f}. Status: {res['Status']}."
+# ... (kode tools yang lain biarkan tetap ada) ...
+
+# --- 7. TOOL OPTIMASI STRUKTUR (BARU) ---
+def tool_cari_dimensi_optimal(mu_kNm, bentang_m):
+    """
+    [TOOL SATRIA] Mencari dimensi balok termurah & aman untuk beban tertentu.
+    """
+    # Harga asumsi (bisa diambil dari session state idealnya, tapi ini default AI)
+    harga = {'beton': 1100000, 'baja': 14000, 'bekisting': 150000}
+    
+    optimizer = opt.BeamOptimizer(25, 400, harga) # Mutu default fc25 fy400
+    hasil = optimizer.cari_dimensi_optimal(mu_kNm, bentang_m)
+    
+    if not hasil:
+        return "Tidak ditemukan dimensi yang cocok (Beban terlalu besar atau bentang terlalu panjang)."
+    
+    # Format Jawaban AI
+    best = hasil[0]
+    return (f"SOLUSI OPTIMAL:\n"
+            f"1. Dimensi: {best['b']}x{best['h']} mm\n"
+            f"2. Estimasi Biaya: Rp {best['Biaya']:,.0f} per meter\n"
+            f"3. Tulangan Perlu: {best['As']:.0f} mm2\n"
+            f"Opsi Alternatif: {hasil[1]['b']}x{hasil[1]['h']} mm (Rp {hasil[1]['Biaya']:,.0f})")
