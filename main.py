@@ -190,32 +190,72 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
             st.session_state['geo'] = {'L': L, 'b': b, 'h': h}
         with c2:
             st.info(f"Dimensi Balok: {b} x {h} mm, Panjang: {L} m")
-
-    # TAB 4 - BETON
+    # TAB 4 - BETON (UPDATED WITH OPTIMIZER)
     with tabs[3]:
-        st.markdown("### Analisa Balok")
-        c1, c2 = st.columns(2)
-        with c1:
-            q_dl = st.number_input("DL (kN/m)", 15.0)
-            q_ll = st.number_input("LL (kN/m)", 5.0)
-            if 'bim_loads' in st.session_state: 
-                q_dl += st.session_state['bim_loads'] / st.session_state['geo']['L']
-                st.caption(f"Termasuk beban BIM: {st.session_state['bim_loads']} kN")
-        with c2:
-            Mu = (1/8) * (1.2*q_dl + 1.6*q_ll) * st.session_state['geo']['L']**2
-            st.metric("Mu (kNm)", f"{Mu:.2f}")
-            As_req = calc_sni.kebutuhan_tulangan(Mu, st.session_state['geo']['b'], st.session_state['geo']['h'], 40)
-            dia = st.selectbox("Diameter", [13, 16, 19, 22])
-            n = int(As_req / (0.25*3.14*dia**2)) + 1
-            st.success(f"Pakai {n} D{dia}")
-            
-            st.session_state['structure'] = {'vol_beton': st.session_state['geo']['L']*b*h/1e6, 'berat_besi': 100}
-            st.session_state['report_struk'] = {'Mu': round(Mu, 2), 'Tulangan': f"{n}D{dia}"}
-            
-            if st.button("Download DXF Balok"):
-                dxf = engine_export.create_dxf("BALOK", {'b':b,'h':h,'dia':dia,'n':n,'pjg':L})
-                st.download_button("📥 .DXF", dxf, "balok.dxf")
+        st.markdown("### 🏗️ Desain Struktur Beton")
+        
+        # Sub-Menu Tab 4
+        mode_beton = st.radio("Pilih Mode:", ["A. Cek Kapasitas (Manual)", "B. Cari Dimensi Optimal (Auto)"], horizontal=True)
+        
+        if mode_beton == "A. Cek Kapasitas (Manual)":
+            c1, c2 = st.columns(2)
+            with c1:
+                q_dl = st.number_input("DL (kN/m)", 15.0)
+                q_ll = st.number_input("LL (kN/m)", 5.0)
+                if 'bim_loads' in st.session_state: 
+                    q_dl += st.session_state['bim_loads'] / st.session_state['geo']['L']
+                    st.caption(f"Termasuk beban BIM: {st.session_state['bim_loads']} kN")
+            with c2:
+                Mu = (1/8) * (1.2*q_dl + 1.6*q_ll) * st.session_state['geo']['L']**2
+                st.metric("Momen Ultimate (Mu)", f"{Mu:.2f} kNm")
+                As_req = calc_sni.kebutuhan_tulangan(Mu, st.session_state['geo']['b'], st.session_state['geo']['h'], 40)
+                dia = st.selectbox("Diameter", [13, 16, 19, 22])
+                n = int(As_req / (0.25*3.14*dia**2)) + 1
+                st.success(f"Pakai {n} D{dia}")
+                
+                # Save State
+                st.session_state['structure'] = {'vol_beton': st.session_state['geo']['L']*b*h/1e6, 'berat_besi': 100}
+                st.session_state['report_struk'] = {'Mu': round(Mu, 2), 'Tulangan': f"{n}D{dia}"}
+                
+                if st.button("Download DXF Balok"):
+                    dxf = engine_export.create_dxf("BALOK", {'b':b,'h':h,'dia':dia,'n':n,'pjg':L})
+                    st.download_button("📥 .DXF", dxf, "balok.dxf")
 
+        elif mode_beton == "B. Cari Dimensi Optimal (Auto)":
+            st.info("💡 Fitur ini akan mencari ukuran balok paling hemat biaya namun tetap AMAN (SNI).")
+            
+            # Import Module Optimizer di sini agar tidak error di awal
+            import libs_optimizer as opt 
+            
+            col_opt1, col_opt2 = st.columns(2)
+            with col_opt1:
+                mu_target = st.number_input("Target Momen (kNm)", 50.0, 1000.0, 150.0)
+                L_target = st.number_input("Panjang Bentang (m)", 3.0, 12.0, st.session_state['geo']['L'])
+            
+            with col_opt2:
+                st.write("Parameter Biaya (Default):")
+                st.caption(f"Beton: Rp {p_beton_ready:,.0f}/m3 | Besi: Rp {p_besi:,.0f}/kg")
+                
+                if st.button("🔍 Cari Dimensi Terbaik"):
+                    # Siapkan Data Harga Realtime dari Sidebar
+                    harga_real = {'beton': p_beton_ready, 'baja': p_besi, 'bekisting': p_kayu/10} # Asumsi bekisting per m2
+                    
+                    optimizer = opt.BeamOptimizer(fc_in, fy_in, harga_real)
+                    hasil = optimizer.cari_dimensi_optimal(mu_target, L_target)
+                    
+                    if hasil:
+                        best = hasil[0]
+                        st.success(f"🏆 REKOMENDASI UTAMA: {best['b']} x {best['h']} mm")
+                        st.metric("Estimasi Biaya per Meter", f"Rp {best['Biaya']:,.0f}")
+                        st.write(f"Tulangan Perlu: {best['As']:.0f} mm2")
+                        
+                        st.markdown("---")
+                        st.write("**Opsi Alternatif:**")
+                        df_res = pd.DataFrame(hasil)
+                        st.dataframe(df_res[['b', 'h', 'As', 'Biaya', 'Rho']])
+                    else:
+                        st.error("Tidak ditemukan solusi yang memenuhi syarat. Coba kurangi beban.")
+    
     # TAB 5 - BAJA
     with tabs[4]:
         st.info("Analisa Baja WF")
@@ -288,3 +328,4 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
                         mime="application/pdf"
                     )
             st.caption("Fitur ini mencetak laporan dengan Kop Surat & Rumus Matematika.")
+
