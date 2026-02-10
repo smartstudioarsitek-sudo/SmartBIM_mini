@@ -9,4 +9,7 @@ streamlit-drawable-canvas
 scipy
 anastruct
 ifcopenshell
+google-generativeai
+
+
 
