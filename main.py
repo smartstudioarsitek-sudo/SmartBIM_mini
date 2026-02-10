@@ -3,9 +3,9 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from io import BytesIO
-import ai_engine as ai # Menggunakan file ai_engine.py yang baru diupdate
+import ai_engine as ai # Menggunakan file ai_engine.py
 
-# --- IMPORT SEMUA MODULE LAMA (JANGAN DIHAPUS) ---
+# --- IMPORT SEMUA MODULE LAMA (WAJIB ADA) ---
 import libs_sni as sni
 import libs_ahsp as ahsp
 import libs_bim_importer as bim
@@ -29,7 +29,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- INIT SESSION STATE (LENGKAP) ---
-# Ini penting agar data tidak hilang saat pindah-pindah tab
+# Menjaga data agar tidak hilang saat pindah tab
 if 'geo' not in st.session_state: st.session_state['geo'] = {'L': 6.0, 'b': 250, 'h': 400}
 if 'structure' not in st.session_state: st.session_state['structure'] = {}
 if 'pondasi' not in st.session_state: st.session_state['pondasi'] = {}
@@ -51,18 +51,19 @@ with st.sidebar:
     st.divider()
     api_key = st.text_input("🔑 Google API Key", type="password", help="Wajib untuk fitur AI Chat")
     
-    # LIST MODEL LENGKAP
+    # LIST MODEL (Solusi Error 429: Gunakan versi Lite atau Flash 1.5 jika 2.0 penuh)
     st.caption("Pilih Model Gemini:")
     model_opt = st.selectbox(
         "🧠 Versi Model",
         [
             "models/gemini-2.0-flash",
             "models/gemini-2.0-flash-lite",
-            "models/gemini-flash-latest",
+            "models/gemini-1.5-flash",
             "models/gemini-1.5-pro",
-            "models/gemini-1.5-flash"
+            "models/gemini-flash-latest"
         ],
-        index=0
+        index=0,
+        help="Jika Error 429 (Quota Exceeded), ganti ke model 'Lite' atau '1.5 Flash'."
     )
     
     # 2. MODE SELECTOR (HYBRID SWITCH)
@@ -75,12 +76,12 @@ with st.sidebar:
     st.divider()
 
 # ==============================================================================
-# MODE 1: AI CONSULTANT (CHAT INTERFACE) - SUDAH DIUPDATE
+# MODE 1: AI CONSULTANT (CHAT INTERFACE)
 # ==============================================================================
 if app_mode == "🤖 AI Consultant (Chat)":
     st.header("🤖 AI Engineering Consultant")
     
-    # Fitur Baru: Tampilkan Data yang Dibaca AI
+    # Fitur: Tampilkan Data yang Dibaca AI
     with st.expander("ℹ️ Lihat Data yang Dibaca AI dari Tab Manual"):
         context_preview = ai.generate_context_from_state(st.session_state)
         st.text(context_preview)
@@ -112,7 +113,6 @@ if app_mode == "🤖 AI Consultant (Chat)":
             with st.chat_message("assistant"):
                 with st.spinner("Sedang menganalisa data proyek Anda..."):
                     # 1. GENERATE CONTEXT DARI STATE
-                    # Ini langkah kuncinya: Ambil data dari tab manual
                     current_context = ai.generate_context_from_state(st.session_state)
                     
                     # 2. INISIALISASI BRAIN
