@@ -86,8 +86,7 @@ def create_professional_report(session_state):
     pdf.chapter_title("I. DATA PROYEK & INPUT")
     
     # Ambil data aman (pakai .get biar tidak error jika kosong)
-    fc = session_state.get('geo', {}).get('fc', '25') # Default mockup jika session kosong
-    # Note: fc disimpan di sidebar variable 'fc_in' di main.py
+    geo = session_state.get('geo', {})
     
     tgl = datetime.datetime.now().strftime("%d %B %Y")
     
@@ -95,21 +94,18 @@ def create_professional_report(session_state):
         f"Tanggal Laporan : {tgl}\n"
         f"Standar Desain  : SNI 2847:2019 (Beton), SNI 1726:2019 (Gempa)\n"
         f"Metode Analisa  : Analisa Statik Ekuivalen & Desain Kapasitas\n"
+        f"Dimensi Balok   : {geo.get('b', 0)} x {geo.get('h', 0)} mm\n"
+        f"Panjang Bentang : {geo.get('L', 0)} meter"
     )
     pdf.chapter_body(info_text)
     
-    # --- BAGIAN 2: ANALISA STRUKTUR BALOK ---
+    # --- BAGIAN 2: ANALISA STRUKTUR BETON (BALOK) ---
     pdf.chapter_title("II. ANALISA STRUKTUR BETON (BALOK)")
     
     struk = session_state.get('report_struk', {})
-    geo = session_state.get('geo', {})
     
     if struk:
-        # Deskripsi
-        pdf.chapter_body(
-            f"Elemen Balok dengan dimensi {geo.get('b')} x {geo.get('h')} mm dan bentang {geo.get('L')} meter "
-            f"dianalisis terhadap kombinasi beban terfaktor (1.2DL + 1.6LL)."
-        )
+        pdf.chapter_body(f"Elemen Balok dianalisis terhadap kombinasi beban terfaktor (1.2DL + 1.6LL).")
         
         # 1. Momen Ultimate
         mu_val = struk.get('Mu', 0)
@@ -143,7 +139,7 @@ def create_professional_report(session_state):
         pdf.cell(0, 6, f"Rasio Tegangan (DCR): {baja.get('Ratio')}", 0, 1)
         pdf.cell(0, 6, f"Status: {baja.get('Status')}", 0, 1)
         pdf.ln(5)
-        
+    
     # Gempa
     gempa = session_state.get('report_gempa', {})
     if gempa:
@@ -154,38 +150,32 @@ def create_professional_report(session_state):
         )
 
     # --- BAGIAN 4: REKAPITULASI BIAYA (RAB) ---
-    pdf.add_page() # Ganti Halaman
+    pdf.add_page()
     pdf.chapter_title("IV. ESTIMASI BIAYA KONSTRUKSI (RAB)")
     
-    pdf.chapter_body("Berikut adalah ringkasan estimasi biaya berdasarkan Analisa Harga Satuan Pekerjaan (AHSP) terbaru:")
+    pdf.chapter_body("Berikut adalah ringkasan estimasi volume utama:")
     
-    # Header Tabel
     pdf.set_font('Arial', 'B', 10)
-    pdf.set_fill_color(200, 220, 255) # Biru Muda
+    pdf.set_fill_color(200, 220, 255)
     pdf.cell(100, 10, "Uraian Pekerjaan", 1, 0, 'C', True)
     pdf.cell(40, 10, "Volume", 1, 0, 'C', True)
-    pdf.cell(50, 10, "Total Harga (Rp)", 1, 1, 'C', True)
+    pdf.cell(50, 10, "Satuan", 1, 1, 'C', True)
     
-    # Data Tabel (Ambil dari logika main.py sederhana)
     s_vol = session_state.get('structure', {}).get('vol_beton', 0)
     p_vol = session_state.get('pondasi', {}).get('fp_beton', 0)
     
     pdf.set_font('Arial', '', 10)
+    pdf.cell(100, 8, "Pek. Beton Struktur Atas", 1, 0)
+    pdf.cell(40, 8, f"{s_vol:.2f}", 1, 0, 'C')
+    pdf.cell(50, 8, "m3", 1, 1, 'R')
     
-    # Baris 1: Struktur Atas
-    pdf.cell(100, 8, "Pek. Beton Struktur Atas (Balok/Kolom)", 1, 0)
-    pdf.cell(40, 8, f"{s_vol:.2f} m3", 1, 0, 'C')
-    pdf.cell(50, 8, "-", 1, 1, 'R') 
-    
-    # Baris 2: Struktur Bawah
     pdf.cell(100, 8, "Pek. Beton Pondasi", 1, 0)
-    pdf.cell(40, 8, f"{p_vol:.2f} m3", 1, 0, 'C')
-    pdf.cell(50, 8, "-", 1, 1, 'R')
+    pdf.cell(40, 8, f"{p_vol:.2f}", 1, 0, 'C')
+    pdf.cell(50, 8, "m3", 1, 1, 'R')
     
     pdf.ln(10)
     pdf.set_font('Arial', 'I', 10)
     pdf.multi_cell(0, 6, "Catatan: Harga total detail dapat dilihat pada lampiran Excel RAB yang terpisah.")
 
-    # Output ke Bytes (FIXED FOR FPDF2)
-    # Tidak perlu .encode('latin-1') lagi karena output() sudah bytes
+    # Output ke Bytes (Fixed for FPDF2)
     return bytes(pdf.output())
