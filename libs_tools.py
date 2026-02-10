@@ -1,66 +1,53 @@
 import libs_sni as sni
 import libs_ahsp as ahsp
 import libs_pondasi as fdn
-import libs_geoteknik as geo
+import libs_baja as steel
 
-# --- INITIALIZE ENGINES ---
-# Kita inisialisasi dengan nilai default, nanti AI bisa override parameter ini
-calc_ahsp = ahsp.AHSP_Engine()
-# Harga dummy untuk Budi Estimator (Idealnya ambil dari database real-time)
-h_dasar = {'semen': 1500, 'pasir': 250000, 'split': 300000, 'besi': 14000, 
-           'kayu': 2500000, 'batu kali': 280000, 'pekerja': 110000, 'tukang': 135000}
+# --- WRAPPER FUNCTION AGAR BISA DIPANGGIL AI ---
 
 def tool_hitung_balok(b_mm, h_mm, fc, fy, mu_kNm, l_m):
     """
-    [TOOL IR. SATRIA]
-    Menghitung kebutuhan tulangan balok beton berdasarkan SNI 2847:2019.
-    Input: b (mm), h (mm), fc (MPa), fy (MPa), Mu (kNm), L (m)
+    [TOOL IR. SATRIA] Menghitung tulangan balok beton (SNI 2847).
     """
+    # Panggil Logic Lama Anda
     engine = sni.SNI_Concrete_2847(fc, fy)
-    # 1. Hitung Tulangan Perlu
-    as_req = engine.kebutuhan_tulangan(mu_kNm, b, h, 40) # ds asumsi 40mm
+    as_req = engine.kebutuhan_tulangan(mu_kNm, b_mm, h_mm, 40)
     
-    # 2. Cek Tulangan Minimum (Safety Check)
-    # (Logika ini sudah ada di libs_sni, kita bungkus jadi report teks)
-    
-    # 3. Konversi ke Jumlah Batang (Misal D16)
+    # Hitung Rekomendasi Tulangan
     dia_tul = 16
     n_bars = int(as_req / (0.25 * 3.14 * dia_tul**2)) + 1
     
-    status = "AMAN" if n_bars < 10 else "TIDAK EFISIEN (Tulangan terlalu padat)"
-    
     return {
-        "output_text": f"Analisa Balok {b}x{h}mm (fc'{fc}):\n- Momen Perlu: {mu_kNm} kNm\n- Tulangan Perlu: {as_req:.2f} mm2\n- Rekomendasi: {n_bars} D{dia_tul}\n- Status: {status}",
-        "data_teknis": {"b": b, "h": h, "as": as_req, "n_bars": n_bars, "fc": fc}
+        "output_text": f"Analisa Balok {b_mm}x{h_mm}mm (fc'{fc}):\n- Momen Perlu: {mu_kNm} kNm\n- Tulangan Perlu: {as_req:.2f} mm2\n- Rekomendasi: {n_bars} D{dia_tul}",
+        "data_teknis": {"as": as_req, "n": n_bars}
     }
 
-def tool_estimasi_biaya_struktur(volume_beton, berat_besi):
+def tool_cek_baja_wf(mu_kNm, bentang_m):
     """
-    [TOOL BUDI ESTIMATOR]
-    Menghitung biaya struktur beton (Beton + Besi + Bekisting estimasi).
+    [TOOL IR. SATRIA] Cek kapasitas profil baja WF 300x150 standar.
     """
-    # Hitung HSP Real-time
-    hsp_beton = calc_ahsp.hitung_hsp('beton_k250', h_dasar, h_dasar)
-    hsp_besi = calc_ahsp.hitung_hsp('pembesian_polos', h_dasar, h_dasar) / 10 # per kg
-    
-    biaya_beton = volume_beton * hsp_beton
-    biaya_besi = berat_besi * hsp_besi
-    total = biaya_beton + biaya_besi
-    
-    return {
-        "output_text": f"Estimasi Biaya Konstruksi:\n- Beton ({volume_beton:.2f} m3): Rp {biaya_beton:,.0f}\n- Besi ({berat_besi:.2f} kg): Rp {biaya_besi:,.0f}\n- TOTAL: Rp {total:,.0f}",
-        "total_biaya": total
-    }
+    # Panggil Logic Lama Anda
+    wf_data = {'Zx': 481} # WF 300x150
+    engine = steel.SNI_Steel_1729(240, 410) # BJ 37
+    res = engine.cek_balok_lentur(mu_kNm, wf_data, bentang_m)
+    return res
 
-def tool_cek_pondasi(beban_pu, lebar_m, daya_dukung):
+def tool_hitung_pondasi(beban_pu, lebar_m):
     """
-    [TOOL IR. SATRIA & GEOTEK]
-    Cek keamanan pondasi telapak.
+    [TOOL GEOTEKNIK] Cek keamanan pondasi telapak.
     """
-    engine = fdn.Foundation_Engine(daya_dukung)
+    # Panggil Logic Lama Anda
+    engine = fdn.Foundation_Engine(150.0) # Daya dukung asumsi 150
     res = engine.hitung_footplate(beban_pu, lebar_m, lebar_m, 300)
-    
-    return {
-        "output_text": f"Analisa Pondasi {lebar_m}x{lebar_m}m:\n- Tegangan Tanah: {res['ratio_safety']:.2f} (SF)\n- Status: {res['status']}\n- Volume Beton: {res['vol_beton']:.2f} m3",
-        "data_teknis": res
-    }
+    return res
+
+def tool_estimasi_biaya(volume_beton):
+    """
+    [TOOL BUDI ESTIMATOR] Hitung biaya beton per m3.
+    """
+    engine = ahsp.AHSP_Engine()
+    # Harga Dasar Dummy (Karena AI tidak baca sidebar)
+    h_dasar = {'semen': 1500, 'pasir': 250000, 'split': 300000, 'pekerja': 110000, 'tukang': 135000}
+    hsp = engine.hitung_hsp('beton_k250', h_dasar, h_dasar)
+    total = volume_beton * hsp
+    return {"HSP_Beton": hsp, "Total_Biaya": total}
