@@ -42,7 +42,7 @@ if 'report_geo' not in st.session_state: st.session_state['report_geo'] = {}
 if "messages" not in st.session_state: st.session_state.messages = []
 
 # ==============================================================================
-# SIDEBAR
+# SIDEBAR UTAMA
 # ==============================================================================
 with st.sidebar:
     st.title("ENGINEX TITAN")
@@ -60,9 +60,16 @@ with st.sidebar:
     st.divider()
     app_mode = st.radio("🛠️ Mode Aplikasi:", ["🤖 AI Consultant (Chat)", "🏗️ Engineering Studio (Full App)"])
     
-    # Input Global (Hanya di mode Studio)
+    # --- INPUT GLOBAL (GLOBAL INPUTS) ---
+    # Variabel ini harus didefinisikan di level Sidebar agar bisa diakses oleh Mode manapun
+    # Kita berikan nilai default agar tidak Error saat pindah mode
+    
+    st.divider()
+    
+    # Input Material & Tanah (Selalu muncul atau minimal terdefinisi)
+    # Jika mode Chat, kita sembunyikan tapi tetap set nilai defaultnya
+    
     if app_mode == "🏗️ Engineering Studio (Full App)":
-        st.divider()
         with st.expander("📝 Input Material & Tanah", expanded=True):
             fc_in = st.number_input("Mutu Beton f'c (MPa)", 20, 50, 25)
             fy_in = st.number_input("Mutu Besi fy (MPa)", 240, 500, 400)
@@ -82,13 +89,26 @@ with st.sidebar:
             u_tukang = st.number_input("Upah Tukang", 135000)
             u_pekerja = st.number_input("Upah Pekerja", 110000)
     else:
-        # Default value untuk mode chat agar tidak error
-        fc_in, fy_in = 25, 400
-        p_beton_ready, p_besi, p_kayu = 1100000, 14000, 2500000
-        p_semen, p_pasir, p_split, p_batu = 1500, 250000, 300000, 280000
-        u_tukang, u_pekerja = 135000, 110000
+        # Nilai Default untuk Mode Chat (Agar variabel tidak 'undefined')
+        fc_in = 25
+        fy_in = 400
+        gamma_tanah = 18.0
+        phi_tanah = 30.0
+        c_tanah = 5.0
+        sigma_tanah = 150.0
+        
+        p_semen = 1500
+        p_pasir = 250000
+        p_split = 300000
+        p_besi = 14000
+        p_kayu = 2500000
+        p_batu = 280000
+        p_beton_ready = 1100000
+        u_tukang = 135000
+        u_pekerja = 110000
 
-# --- INIT ENGINES ---
+# --- INIT ENGINES (ENGINE DINYALAKAN SETELAH VARIABEL DIDEFINISIKAN) ---
+# Sekarang variabel gamma_tanah dll sudah pasti ada nilainya
 calc_sni = sni.SNI_Concrete_2847(fc_in, fy_in)
 calc_biaya = ahsp.AHSP_Engine()
 calc_geo = geo.Geotech_Engine(gamma_tanah, phi_tanah, c_tanah)
@@ -102,7 +122,11 @@ if app_mode == "🤖 AI Consultant (Chat)":
     st.header("🤖 AI Engineering Consultant")
     
     with st.expander("ℹ️ Lihat Data yang Dibaca AI"):
-        st.text(ai.generate_context_from_state(st.session_state))
+        # Kita bungkus dalam try-except agar aman jika file ai_engine bermasalah
+        try:
+            st.text(ai.generate_context_from_state(st.session_state))
+        except:
+            st.text("Menunggu inisialisasi AI...")
     
     col1, col2 = st.columns([1, 3])
     with col1:
@@ -201,7 +225,9 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
                 n = int(As_req / (0.25*3.14*dia**2)) + 1
                 st.success(f"Pakai {n} D{dia}")
                 
-                st.session_state['structure'] = {'vol_beton': st.session_state['geo']['L']*st.session_state['geo']['b']*st.session_state['geo']['h']/1e6, 'berat_besi': 100}
+                # Volume dalam m3
+                vol = (st.session_state['geo']['L'] * st.session_state['geo']['b'] * st.session_state['geo']['h']) / 1e6
+                st.session_state['structure'] = {'vol_beton': vol, 'berat_besi': 100}
                 st.session_state['report_struk'] = {'Mu': round(Mu, 2), 'Tulangan': f"{n}D{dia}"}
                 
                 if st.button("Download DXF Balok"):
@@ -229,7 +255,7 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
                     else:
                         st.error("Tidak ditemukan solusi. Coba kurangi beban.")
 
-    # --- TAB 5: BAJA (DIKEMBALIKAN LENGKAP) ---
+    # --- TAB 5: BAJA ---
     with tabs[4]:
         st.subheader("Analisa Baja WF")
         c1, c2 = st.columns(2)
@@ -244,7 +270,7 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
                 st.write(res)
                 st.session_state['report_baja'] = {'Profil': pilih, 'Ratio': res['Ratio'], 'Status': res['Status'], 'Mu': Mu_baja, 'Phi_Mn': res['Phi_Mn']}
 
-    # --- TAB 6: GEMPA (DIKEMBALIKAN LENGKAP) ---
+    # --- TAB 6: GEMPA ---
     with tabs[5]:
         st.subheader("Analisa Gempa SNI 1726")
         c1, c2 = st.columns(2)
@@ -258,7 +284,7 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
             st.metric("Base Shear (V)", f"{V:.2f} kN")
             st.session_state['report_gempa'] = {'V_gempa': round(V,2), 'Site': site}
 
-    # --- TAB 7: GEOTEKNIK (DIKEMBALIKAN LENGKAP) ---
+    # --- TAB 7: GEOTEKNIK ---
     with tabs[6]:
         st.subheader("Analisa Geoteknik")
         c1, c2 = st.columns(2)
@@ -270,6 +296,7 @@ elif app_mode == "🏗️ Engineering Studio (Full App)":
         with c2:
             res_talud = calc_geo.hitung_talud_batu_kali(3.0, 0.4, 1.5)
             st.write(res_talud)
+            st.session_state['geotech'] = {'vol_talud': res_talud['Vol_Per_M']}
             st.session_state['report_geo'] = {'Talud_SF': f"{res_talud['SF_Geser']:.2f}", 'Status': res_talud['Status']}
 
     # --- TAB 8: RAB & REPORT ---
