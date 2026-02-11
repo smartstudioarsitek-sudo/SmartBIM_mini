@@ -8,7 +8,6 @@ class SNI_Gempa_1726:
         
     def hitung_base_shear(self, Berat_W_kN, R_redaman):
         # 1. Tentukan Fa Fv (Tabel SNI)
-        # Simplifikasi Logika Tabel
         if self.Site == 'SE': # Tanah Lunak
             Fa = 0.9 if self.Ss >= 1.0 else 2.5
             Fv = 2.4 if self.S1 >= 0.5 else 3.5
@@ -25,7 +24,6 @@ class SNI_Gempa_1726:
         Sd1 = (2/3) * Sm1
         
         # 3. Hitung Koefisien Cs
-        # Cs = Sds / (R/Ie). Asumsi Ie (Keutamaan) = 1.0 untuk Rumah
         Ie = 1.0
         Cs = Sds / (R_redaman / Ie)
         
