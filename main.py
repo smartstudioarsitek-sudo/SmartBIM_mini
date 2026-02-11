@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches  # PENTING: Untuk visualisasi balok/denah
+import matplotlib.patches as patches  # Wajib untuk visualisasi balok
 from io import BytesIO
 import json
 import re
@@ -16,7 +16,6 @@ import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # --- IMPORT MODULE ENGINEERING LOKAL ---
-# Pastikan 8 file libs_*.py ada di folder yang sama
 import libs_sni as sni
 import libs_ahsp as ahsp
 import libs_bim_importer as bim
@@ -76,7 +75,7 @@ if 'geotech' not in st.session_state: st.session_state['geotech'] = {}
 if 'arsitek_mep' not in st.session_state: st.session_state['arsitek_mep'] = {}
 if 'drawing' not in st.session_state: st.session_state['drawing'] = {} # Untuk Data Gambar Canvas
 
-# State untuk Report Excel (Menyimpan hasil hitungan terakhir)
+# State untuk Report Excel
 for k in ['report_struk', 'report_baja', 'report_gempa', 'report_geo']:
     if k not in st.session_state: st.session_state[k] = {}
 
@@ -92,10 +91,7 @@ if 'current_expert_active' not in st.session_state: st.session_state.current_exp
 # ==========================================
 
 def get_project_summary_context():
-    """
-    Fungsi Pintar: Mengambil data teknis dari Tab Kalkulator 
-    untuk dikirim ke AI sebagai konteks diskusi.
-    """
+    """Mengambil data teknis dari Tab Kalkulator untuk dikirim ke AI."""
     summary = "DATA TEKNIS PROYEK SAAT INI (Dari Kalkulator IndoBIM):\n"
     
     # 1. Struktur Beton
@@ -177,7 +173,6 @@ with st.sidebar:
     st.divider()
 
     # --- PARAMETER GLOBAL (HSD & Material) ---
-    # Parameter ini dipakai oleh Kalkulator, tapi bisa diakses AI juga
     with st.expander("⚙️ Parameter & Harga Satuan", expanded=False):
         st.markdown("**Material & Tanah**")
         fc_in = st.number_input("Mutu Beton f'c (MPa)", 20, 50, 25)
@@ -217,7 +212,6 @@ if app_mode == "🧮 Kalkulator Teknik (Tools)":
     st.markdown(f'<div class="main-header">🛠️ Engineering Workspace: {nama_proyek}</div>', unsafe_allow_html=True)
 
     # --- NAVIGASI TABS TOOLS ---
-    # Tab Modeling & Drawing digabung agar user bisa pilih metode input
     tabs = st.tabs([
         "🏠 Dash", "📂 BIM Import", "✏️ Model & Draw", "🏗️ Beton", 
         "🔩 Baja/Atap", "🌋 Gempa", "⛰️ Geoteknik", "💰 RAB Final"
@@ -257,7 +251,7 @@ if app_mode == "🧮 Kalkulator Teknik (Tools)":
                         st.toast("Data BIM Tersimpan!", icon="💾")
             except Exception as e: st.error(f"Error IFC: {e}")
 
-    # --- TAB 3: MODELING & DRAWING (FITUR S_BawahRT PULIH DISINI) ---
+    # --- TAB 3: MODELING & DRAWING (FITUR CANVAS S_BAWAHRT ADA DISINI) ---
     with tabs[2]:
         st.markdown('<p class="sub-header">Modeling Geometri</p>', unsafe_allow_html=True)
         sub_mod1, sub_mod2 = st.tabs(["A. Input Grid (Detail)", "B. Gambar Denah (Visual Canvas)"])
@@ -272,7 +266,6 @@ if app_mode == "🧮 Kalkulator Teknik (Tools)":
                 st.session_state['geo'] = {'L': L, 'b': b, 'h': h}
             with col_mod2:
                 fig, ax = plt.subplots(figsize=(6, 2))
-                # Menggunakan patches yang sudah diimport
                 ax.add_patch(patches.Rectangle((0, 0), L, h/1000, facecolor='#2E86C1', edgecolor='black'))
                 ax.set_xlim(-0.5, L+0.5); ax.set_ylim(-0.5, 2)
                 ax.set_title(f"Visualisasi Balok {b}x{h} mm")
@@ -525,6 +518,7 @@ if app_mode == "🧮 Kalkulator Teknik (Tools)":
         hsp_cat = calc_biaya.hitung_hsp('cat_tembok', h_bahan, h_upah) * 2
         hsp_pintu = calc_biaya.hitung_hsp('pasang_kus_pintu', h_bahan, h_upah) + 500000 
         hsp_pipa = calc_biaya.hitung_hsp('pasang_pipa_pvc', h_bahan, h_upah)
+        hsp_pile = calc_biaya.hitung_hsp('bore_pile_k300', h_bahan, h_upah) # <--- VARIABLE INI YANG HILANG SEBELUMNYA
         
         # 4. Tabel RAB Lengkap
         data_rab = [
