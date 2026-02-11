@@ -1,9 +1,9 @@
 import ifcopenshell
-import ifcopenshell.util.placement  # Library wajib untuk membaca koordinat Global
+import ifcopenshell.util.placement
 import pandas as pd
 import io
 
-class BIMImporter:
+class IFC_Parser_Engine:
     def __init__(self):
         self.ifc_file = None
 
@@ -15,11 +15,11 @@ class BIMImporter:
             if isinstance(file_obj, str):
                 # Jika input adalah path file (string)
                 self.ifc_file = ifcopenshell.open(file_obj)
-            else:
+            elif file_obj is not None:
                 # Jika input adalah file object dari Streamlit (bytes)
                 # Kita perlu membaca bytes tersebut ke string sementara
                 file_bytes = file_obj.getvalue()
-                # Mengubah bytes menjadi string untuk dibaca ifcopenshell
+                # Mengubah bytes menjadi string utf-8 agar bisa dibaca ifcopenshell
                 ifc_string = file_bytes.decode("utf-8")
                 self.ifc_file = ifcopenshell.file.from_string(ifc_string)
             
@@ -115,6 +115,7 @@ class BIMImporter:
         df = pd.DataFrame(data)
         
         # Membersihkan data NaN (kosong) agar rapi di tabel
-        df = df.fillna("")
+        if not df.empty:
+            df = df.fillna("")
         
         return df
