@@ -13,6 +13,8 @@ google-generativeai
 Pillow
 fpdf2
 python-docx
+PyPDF2
+
 
 
 
