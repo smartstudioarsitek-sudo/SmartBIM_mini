@@ -4,8 +4,15 @@ import pandas as pd
 import io
 
 class IFC_Parser_Engine:
-    def __init__(self):
+    def __init__(self, file_obj=None):
+        """
+        Inisialisasi class. 
+        Parameter file_obj dibuat opsional (None) agar fleksibel.
+        Jika main.py mengirim file saat inisialisasi, otomatis langsung dimuat.
+        """
         self.ifc_file = None
+        if file_obj is not None:
+            self.load_ifc_file(file_obj)
 
     def load_ifc_file(self, file_obj):
         """
@@ -57,7 +64,7 @@ class IFC_Parser_Engine:
                 properties["Z"] = round(matrix[2][3], 4)
             except Exception as e:
                 # Jika gagal hitung (jarang terjadi), biarkan 0.0
-                print(f"Warning: Gagal hitung koordinat untuk {element.GlobalId}: {e}")
+                pass
 
         # --- MENGEKSTRAK PROPERTY SETS (Pset) ---
         # Mengambil data Custom Attributes (misal: Pset_Irigasi, Material, dll)
