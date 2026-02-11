@@ -1,4 +1,5 @@
 import ifcopenshell
+import ifcopenshell.util.placement # Library sakti untuk koordinat
 import pandas as pd
 import numpy as np
 import tempfile
@@ -6,17 +7,59 @@ import os
 
 class IFC_Parser_Engine:
     def __init__(self, file_bytes):
-        # Simpan file sementara agar bisa dibaca ifcopenshell
+        # 1. Simpan file sementara agar bisa dibaca ifcopenshell
         self.temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".ifc")
         self.temp_file.write(file_bytes.read())
         self.temp_file.close()
+        
         try:
             self.ifc_file = ifcopenshell.open(self.temp_file.name)
         except Exception as e:
             os.unlink(self.temp_file.name)
-            raise ValueError(f"File tidak valid atau rusak: {e}")
+            raise ValueError(f"File IFC rusak atau tidak valid: {e}")
         
+        # Hapus file temp setelah di-load ke memori
         os.unlink(self.temp_file.name)
+
+    def get_absolute_coordinates(self, element):
+        """
+        Mengambil koordinat GLOBAL (X, Y, Z) elemen.
+        Menggunakan matrix transformation untuk akurasi tinggi.
+        """
+        try:
+            # Cara Canggih: Menggunakan utilitas bawaan ifcopenshell
+            # Ini menghitung posisi absolut elemen terhadap titik 0,0,0 proyek
+            matrix = ifcopenshell.util.placement.get_local_placement(element.ObjectPlacement)
+            
+            # Matrix 4x4, kolom ke-4 (index 3) adalah posisi X, Y, Z
+            x = matrix[0][3]
+            y = matrix[1][3]
+            z = matrix[2][3]
+            return float(x), float(y), float(z)
+            
+        except:
+            # Cara Manual (Fallback): Menjumlahkan offset secara hierarki
+            # (Kolom -> Lantai -> Gedung -> Site)
+            x, y, z = 0.0, 0.0, 0.0
+            try:
+                placement = element.ObjectPlacement
+                while placement is not None:
+                    if placement.is_a("IfcLocalPlacement"):
+                        rel_pl = placement.RelativePlacement
+                        if rel_pl.is_a("IfcAxis2Placement3D"):
+                            loc = rel_pl.Location.Coordinates
+                            x += float(loc[0])
+                            y += float(loc[1])
+                            z += float(loc[2])
+                    
+                    # Naik ke parent placement
+                    if hasattr(placement, "PlacementRelTo"):
+                        placement = placement.PlacementRelTo
+                    else:
+                        placement = None
+                return x, y, z
+            except:
+                return 0.0, 0.0, 0.0
 
     def parse_structure(self):
         """
@@ -25,33 +68,17 @@ class IFC_Parser_Engine:
         """
         elements = []
         
-        # 1. Kolom (IfcColumn) - Tersedia di semua versi IFC
+        # 1. Kolom (IfcColumn)
         for col in self.ifc_file.by_type("IfcColumn"):
-            x, y, z = 0, 0, 0
-            try:
-                # Coba ambil koordinat placement
-                if col.ObjectPlacement and col.ObjectPlacement.RelativePlacement:
-                    loc = col.ObjectPlacement.RelativePlacement.Location
-                    if hasattr(loc, "Coordinates"):
-                        coord = loc.Coordinates
-                        x, y, z = float(coord[0]), float(coord[1]), float(coord[2])
-            except:
-                pass # Default 0,0,0 jika gagal parsing geo
-                
-            elements.append({"Type": "Kolom", "Name": col.Name if col.Name else "Unnamed Column", "X": x, "Y": y, "Z": z})
+            x, y, z = self.get_absolute_coordinates(col)
+            name = col.Name if col.Name else "Unnamed Column"
+            elements.append({"Type": "Kolom", "Name": name, "X": x, "Y": y, "Z": z})
             
-        # 2. Balok (IfcBeam) - Tersedia di semua versi IFC
+        # 2. Balok (IfcBeam)
         for beam in self.ifc_file.by_type("IfcBeam"):
-            x, y, z = 0, 0, 0
-            try:
-                if beam.ObjectPlacement and beam.ObjectPlacement.RelativePlacement:
-                    loc = beam.ObjectPlacement.RelativePlacement.Location
-                    if hasattr(loc, "Coordinates"):
-                        coord = loc.Coordinates
-                        x, y, z = float(coord[0]), float(coord[1]), float(coord[2])
-            except:
-                pass
-            elements.append({"Type": "Balok", "Name": beam.Name if beam.Name else "Unnamed Beam", "X": x, "Y": y, "Z": z})
+            x, y, z = self.get_absolute_coordinates(beam)
+            name = beam.Name if beam.Name else "Unnamed Beam"
+            elements.append({"Type": "Balok", "Name": name, "X": x, "Y": y, "Z": z})
             
         return pd.DataFrame(elements)
 
@@ -59,14 +86,15 @@ class IFC_Parser_Engine:
         """
         Mengambil Volume Dinding, Pintu, Jendela
         """
-        # 1. Dinding (Luas m2)
         total_wall_area = 0
-        walls = self.ifc_file.by_type("IfcWall") # Mengambil IfcWall dan IfcWallStandardCase
+        
+        # Ambil IfcWall dan IfcWallStandardCase
+        walls = self.ifc_file.by_type("IfcWall") 
         
         for wall in walls:
             area_found = False
             
-            # Metode 1: Cari di Property Sets (Qto_WallBaseQuantities)
+            # Coba cari di Property Sets (NetSideArea / Area)
             if hasattr(wall, "IsDefinedBy"):
                 for rel in wall.IsDefinedBy:
                     if rel.is_a("IfcRelDefinesByProperties"):
@@ -74,11 +102,10 @@ class IFC_Parser_Engine:
                             props = rel.RelatingPropertyDefinition
                             if props.is_a("IfcElementQuantity"):
                                 for q in props.Quantities:
-                                    # Prioritaskan NetSideArea (Luas Bersih) atau Area
                                     if q.Name in ["NetSideArea", "GrossSideArea", "Area"]:
                                         val = 0
                                         if hasattr(q, "AreaValue"): val = q.AreaValue
-                                        elif hasattr(q, "VolumeValue") and q.VolumeValue < 100: val = q.VolumeValue # Kadang salah label
+                                        elif hasattr(q, "VolumeValue"): val = q.VolumeValue # Kadang salah label
                                         
                                         if val > 0:
                                             total_wall_area += val
@@ -86,12 +113,10 @@ class IFC_Parser_Engine:
                                             break
                     if area_found: break
             
-            # Metode 2: Fallback jika tidak ada Quantity Sets (Estimasi Kasar)
+            # Fallback Estimasi jika Property kosong
             if not area_found:
-                # Asumsi panel dinding standar 3x3m = 9m2 per item
-                total_wall_area += 9.0 
+                total_wall_area += 9.0 # Asumsi panel 3x3m
 
-        # 2. Pintu & Jendela (Unit)
         doors = len(self.ifc_file.by_type("IfcDoor"))
         windows = len(self.ifc_file.by_type("IfcWindow"))
         
@@ -104,31 +129,20 @@ class IFC_Parser_Engine:
     def parse_mep_quantities(self):
         """
         Mengambil Panjang Pipa & Ducting.
-        FIX: Support IFC2x3 (IfcFlowSegment) dan IFC4 (IfcPipeSegment)
+        Support IFC2x3 (IfcFlowSegment) dan IFC4 (IfcPipeSegment)
         """
         total_pipe_len = 0
-        
-        # --- DETEKSI SCHEMA ---
-        schema_version = self.ifc_file.schema # Return string misal 'IFC2X3' atau 'IFC4'
-        
+        schema_version = self.ifc_file.schema 
         mep_elements = []
         
-        # --- STRATEGI PENGAMBILAN DATA ---
+        # Deteksi tipe elemen berdasarkan versi IFC
         if schema_version == "IFC4":
-            # Di IFC4, Pipa sudah punya entity sendiri
-            try:
-                mep_elements = self.ifc_file.by_type("IfcPipeSegment")
-            except:
-                mep_elements = self.ifc_file.by_type("IfcFlowSegment") # Fallback
+            try: mep_elements = self.ifc_file.by_type("IfcPipeSegment")
+            except: mep_elements = self.ifc_file.by_type("IfcFlowSegment")
         else:
-            # Di IFC2x3, Pipa, Duct, CableTray semua adalah IfcFlowSegment
-            # Kita ambil semua FlowSegment sebagai estimasi MEP
-            try:
-                mep_elements = self.ifc_file.by_type("IfcFlowSegment")
-            except:
-                mep_elements = []
+            try: mep_elements = self.ifc_file.by_type("IfcFlowSegment")
+            except: mep_elements = []
 
-        # --- HITUNG PANJANG ---
         for item in mep_elements:
             length = 0
             # Coba cari Length di Quantities
@@ -144,9 +158,7 @@ class IFC_Parser_Engine:
                                             length = q.LengthValue
                                             break
             
-            # Fallback jika length 0 (Asumsi panjang per batang standar 4m)
-            if length == 0: length = 4.0 
-            
+            if length == 0: length = 4.0 # Fallback
             total_pipe_len += length
             
         return {
@@ -154,8 +166,7 @@ class IFC_Parser_Engine:
         }
 
     def calculate_architectural_loads(self):
-        # Helper untuk menghitung beban struktur dari arsitek
+        # Helper untuk beban struktur
         q = self.parse_architectural_quantities()
-        # Asumsi Dinding Bata Ringan/Merah: Tebal 15cm, BJ 17 kN/m3 -> ~2.55 kN/m2
-        beban_dinding = q["Luas Dinding (m2)"] * 2.55 
+        beban_dinding = q["Luas Dinding (m2)"] * 2.55 # Asumsi 15cm x 17kN/m3
         return {"Total Load Tambahan (kN)": round(beban_dinding, 2)}
