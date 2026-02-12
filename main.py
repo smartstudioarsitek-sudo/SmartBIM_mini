@@ -34,8 +34,7 @@ import libs_gempa as quake
 try:
     from backend_enginex import EnginexBackend
 except ImportError:
-    st.warning("⚠️ File 'backend_enginex.py' tidak ditemukan. Fitur chat history mungkin tidak berjalan.")
-    # Dummy class agar tidak crash
+    # Dummy class agar tidak crash jika file backend belum ada
     class EnginexBackend:
         def __init__(self): pass
         def get_chat_history(self, p, g): return []
@@ -114,8 +113,30 @@ if 'processed_files' not in st.session_state: st.session_state.processed_files =
 if 'current_expert_active' not in st.session_state: st.session_state.current_expert_active = "👑 The GEMS Grandmaster"
 
 # ==========================================
-# 3. HELPER FUNCTIONS & CLASS
+# 3. HELPER FUNCTIONS & PERSONA DEFINITION
 # ==========================================
+
+# --- [FIXED] DEFINISI PERSONA AI DI SINI ---
+PLOT_INSTRUCTION = """
+[ATURAN VISUALISASI]: Jika diminta grafik, tulis kode Python (matplotlib) dalam blok ```python. 
+Akhiri kode dengan `st.pyplot(plt.gcf())`. Jangan pakai `plt.show()`.
+"""
+
+gems_persona = {
+    "👑 The GEMS Grandmaster": f"""ANDA ADALAH "THE GEMS GRANDMASTER" (Project Director). 
+    Menjawab dengan wawasan Multidisiplin (Teknis, Hukum, Biaya, Agama). {PLOT_INSTRUCTION}""",
+    
+    "👔 Project Manager (PM)": "ANDA ADALAH SENIOR PROJECT DIRECTOR. Fokus: Strategi, Risiko, Stakeholder.",
+    "📝 Drafter Laporan DED": "ANDA ADALAH LEAD TECHNICAL WRITER. Fokus: Struktur Laporan PUPR (Pendahuluan, Antara, Akhir).",
+    "⚖️ Ahli Legal & Kontrak": "ANDA ADALAH AHLI HUKUM KONSTRUKSI (FIDIC/LPJK). Fokus: Klaim, Sengketa, Adendum.",
+    "🕌 Dewan Syariah": "ANDA ADALAH ULAMA FIQIH BANGUNAN. Fokus: Arah Kiblat, Akad Istishna, Adab Tetangga.",
+    "🏗️ Ahli Struktur (Gedung)": f"ANDA ADALAH STRUCTURAL ENGINEER. Fokus: Beton, Baja, Gempa SNI 1726. {PLOT_INSTRUCTION}",
+    "🪨 Ahli Geoteknik": f"ANDA ADALAH GEOTECHNICAL ENGINEER. Fokus: Daya Dukung Tanah, Sondir, Longsor. {PLOT_INSTRUCTION}",
+    "🛣️ Ahli Jalan & Jembatan": f"ANDA ADALAH HIGHWAY ENGINEER. Fokus: Geometrik Jalan, Perkerasan. {PLOT_INSTRUCTION}",
+    "🏛️ Senior Architect": "ANDA ADALAH ARSITEK UTAMA. Fokus: Desain, Estetika, Fungsi Ruang.",
+    "💰 Ahli Estimator (RAB)": "ANDA ADALAH QUANTITY SURVEYOR. Fokus: AHSP, Volume, Biaya Proyek.",
+    "🤖 The Enginex Architect": "ANDA ADALAH SYSTEM ADMIN APLIKASI INI."
+}
 
 @st.cache_resource
 def get_available_models_from_google(api_key_trigger):
@@ -153,6 +174,22 @@ def get_project_summary_context():
         
     return summary
 
+def get_auto_pilot_decision(user_query, model_name):
+    try:
+        router_model = genai.GenerativeModel(model_name)
+        list_ahli = list(gems_persona.keys())
+        router_prompt = f"""
+        Pilih SATU ahli dari daftar berikut untuk menjawab pertanyaan: "{user_query}"
+        Daftar: {list_ahli}
+        Output: HANYA nama ahli persis. Jika ragu, pilih '👑 The GEMS Grandmaster'.
+        """
+        response = router_model.generate_content(router_prompt)
+        suggested = response.text.strip()
+        if suggested in list_ahli: return suggested
+        return "👑 The GEMS Grandmaster"
+    except:
+        return "👑 The GEMS Grandmaster"
+
 def execute_generated_code(code_str):
     try:
         local_vars = {"pd": pd, "np": np, "plt": plt, "st": st}
@@ -161,6 +198,24 @@ def execute_generated_code(code_str):
     except Exception as e:
         st.error(f"⚠️ Gagal Render Grafik: {e}")
         return False
+
+def create_docx_from_text(text_content):
+    try:
+        doc = docx.Document()
+        doc.add_heading('Laporan Konsultasi AI - IndoBIM', 0)
+        for line in text_content.split('\n'):
+            clean = line.strip()
+            if clean.startswith('## '): doc.add_heading(clean.replace('## ', ''), level=2)
+            elif clean.startswith('### '): doc.add_heading(clean.replace('### ', ''), level=3)
+            elif clean.startswith('- ') or clean.startswith('* '): 
+                try: doc.add_paragraph(clean, style='List Bullet')
+                except: doc.add_paragraph(clean)
+            elif clean: doc.add_paragraph(clean)
+        bio = BytesIO()
+        doc.save(bio)
+        bio.seek(0)
+        return bio
+    except: return None
 
 # ==========================================
 # 4. SIDEBAR CONTROLLER
@@ -180,6 +235,14 @@ with st.sidebar:
         try:
             genai.configure(api_key=raw_key.strip())
         except: pass
+    
+    # --- MODEL SELECTOR ---
+    st.markdown("### 🧠 Pilih Otak AI")
+    available_models, err = get_available_models_from_google(raw_key if raw_key else "")
+    if available_models:
+        selected_model_name = st.selectbox("Model:", available_models, index=0)
+    else:
+        selected_model_name = "gemini-1.5-flash"
 
     # --- MODE APLIKASI ---
     st.divider()
@@ -415,9 +478,6 @@ if app_mode == "🧮 Kalkulator Teknik (Integrated)":
             if st.button("▶️ RUN ANALYSIS (Cek Kekuatan)"):
                 with st.spinner("Menghitung Matriks Kekakuan..."):
                     # Simulasi Hasil Analisa (Untuk Demo Integrasi)
-                    # Idealnya menggunakan class StructuralEngine dari integrated_bim.py
-                    # Di sini kita simulasikan output Momen Maksimum
-                    
                     st.success("✅ Analisa Selesai!")
                     
                     res_c1, res_c2 = st.columns(2)
@@ -585,20 +645,21 @@ elif app_mode == "🤖 Konsultan AI (Chat)":
         st.markdown("---")
         st.markdown("### 👷 Tim Ahli")
         use_auto = st.checkbox("🤖 Auto-Pilot", value=True)
+        # gems_persona sudah didefinisikan di atas (helper functions)
         manual_sel = st.selectbox("Pilih Manual:", list(gems_persona.keys()), disabled=use_auto)
         
         if not use_auto: st.session_state.current_expert_active = manual_sel
         
         st.markdown("### 📂 Data Pendukung")
         if st.button("🧹 Reset Chat"):
-            db.clear_chat(nama_proyek, st.session_state.current_expert_active)
+            db.clear_chat("Proyek Aktif", st.session_state.current_expert_active)
             st.rerun()
 
     # --- CHAT AREA ---
     current_expert = st.session_state.current_expert_active
     st.caption(f"Status: **Connected** | Expert: **{current_expert}** | Project Context: **Active**")
     
-    # Render History (Dummy name 'Proyek Baru' karena input nama ada di backend logic lama, kita simplify)
+    # Render History
     nama_proyek_chat = "Proyek Aktif" 
     history = db.get_chat_history(nama_proyek_chat, current_expert)
     
@@ -609,7 +670,7 @@ elif app_mode == "🤖 Konsultan AI (Chat)":
         # Auto-Pilot Logic
         target_expert = current_expert
         if use_auto:
-            target_expert = get_auto_pilot_decision(prompt, "gemini-1.5-flash")
+            target_expert = get_auto_pilot_decision(prompt, selected_model_name)
             st.session_state.current_expert_active = target_expert
             st.toast(f"Dialihkan ke: {target_expert}", icon="🔀")
             
@@ -625,7 +686,7 @@ elif app_mode == "🤖 Konsultan AI (Chat)":
             with st.spinner("Sedang menganalisa..."):
                 try:
                     # Init Model
-                    model = genai.GenerativeModel("gemini-1.5-flash", system_instruction=gems_persona[target_expert])
+                    model = genai.GenerativeModel(selected_model_name, system_instruction=gems_persona[target_expert])
                     
                     # Convert history
                     api_hist = [{"role": "user" if h['role']=="user" else "model", "parts": [h['content']]} for h in history]
