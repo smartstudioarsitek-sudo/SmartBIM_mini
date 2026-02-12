@@ -577,44 +577,86 @@ if app_mode == "🧮 Kalkulator Teknik (Tools)":
             st.session_state['geotech'] = {'vol_talud': res_t['Vol_Per_M'], 'vol_pile': 0}
             st.session_state['report_geo'] = {'Talud_SF': res_t['SF_Geser'], 'Pile_Qall': '-'}
 
-    # [TAB 8: RAB]
+    # [TAB 8: RAB (FINAL INTEGRATION)]
     with tabs[7]:
+        st.subheader("💰 Rekapitulasi Anggaran Biaya (RAB)")
+        
+        # 1. Ambil Data dari Modul Lain
         d_str = st.session_state.get('structure', {})
         d_pon = st.session_state.get('pondasi', {})
         d_geo = st.session_state.get('geotech', {})
-        d_bim = st.session_state.get('arsitek_mep', {})
+        d_bim = st.session_state.get('arsitek_mep', {}) # Data IFC
         d_draw = st.session_state.get('drawing', {})
         
-        # Volume Gabungan
+        # 2. Volume Struktur (Manual / Drawing)
         vol_beton = d_str.get('vol_beton', 0) + d_pon.get('fp_beton', 0) + d_draw.get('vol_beton', 0)
         vol_besi = d_str.get('berat_besi', 0) + d_pon.get('fp_besi', 0)
-        vol_dinding = d_draw.get('vol_dinding', 0) if d_draw else d_bim.get('Luas Dinding (m2)', 0)
         
-        # Harga Dasar (Ambil dari Sidebar)
+        # 3. Volume Arsitektur (Prioritas BIM > Drawing)
+        vol_dinding_bim = d_bim.get('Luas Dinding (m2)', 0)
+        vol_dinding_draw = d_draw.get('vol_dinding', 0)
+        vol_dinding_final = max(vol_dinding_bim, vol_dinding_draw)
+        
+        # Data MEP & Bukaan dari BIM
+        jml_pintu = d_bim.get('Jumlah Pintu (Unit)', 0)
+        jml_jendela = d_bim.get('Jumlah Jendela (Unit)', 0)
+        pjg_pipa = d_bim.get('Panjang Pipa/Duct (m\')', 0)
+        
+        # 4. Harga Dasar (Ambil dari Sidebar)
         h_mat = {'semen': p_semen, 'pasir': p_pasir, 'split': p_split, 'besi': p_besi, 'kayu': p_kayu, 'batu kali': p_batu, 'beton k300': p_beton_ready, 'bata merah': p_bata, 'cat tembok': p_cat, 'pipa pvc': p_pipa}
         h_wage = {'pekerja': u_pekerja, 'tukang': u_tukang, 'mandor': u_pekerja*1.2}
         
-        # Hitung HSP
-        hsp_b = calc_biaya.hitung_hsp('beton_k250', h_mat, h_wage)
-        hsp_s = calc_biaya.hitung_hsp('pembesian_polos', h_mat, h_wage) / 10
-        hsp_d = calc_biaya.hitung_hsp('pasangan_bata_merah', h_mat, h_wage)
-        hsp_t = calc_biaya.hitung_hsp('pasangan_batu_kali', h_mat, h_wage)
+        # 5. Hitung HSP (Analisa Harga Satuan Pekerjaan)
+        hsp_beton = calc_biaya.hitung_hsp('beton_k250', h_mat, h_wage)
+        hsp_besi = calc_biaya.hitung_hsp('pembesian_polos', h_mat, h_wage) / 10
+        hsp_bata = calc_biaya.hitung_hsp('pasangan_bata_merah', h_mat, h_wage)
+        hsp_plester = calc_biaya.hitung_hsp('plesteran', h_mat, h_wage)
+        hsp_acian = calc_biaya.hitung_hsp('acian', h_mat, h_wage)
+        hsp_cat = calc_biaya.hitung_hsp('cat_tembok', h_mat, h_wage)
+        hsp_talud = calc_biaya.hitung_hsp('pasangan_batu_kali', h_mat, h_wage)
         hsp_pile = calc_biaya.hitung_hsp('bore_pile_k300', h_mat, h_wage)
+        hsp_kusen = calc_biaya.hitung_hsp('pasang_kus_pintu', h_mat, h_wage)
+        hsp_pipa = calc_biaya.hitung_hsp('pasang_pipa_pvc', h_mat, h_wage)
         
-        rab_data = [
-            {"Item": "Beton Struktur", "Vol": vol_beton, "Sat": "m3", "Hrg": hsp_b, "Tot": vol_beton*hsp_b},
-            {"Item": "Pembesian", "Vol": vol_besi, "Sat": "kg", "Hrg": hsp_s, "Tot": vol_besi*hsp_s},
-            {"Item": "Dinding Bata", "Vol": vol_dinding, "Sat": "m2", "Hrg": hsp_d, "Tot": vol_dinding*hsp_d},
-            {"Item": "Talud/Pondasi", "Vol": d_geo.get('vol_talud',0), "Sat": "m3", "Hrg": hsp_t, "Tot": d_geo.get('vol_talud',0)*hsp_t},
-            {"Item": "Bore Pile", "Vol": d_geo.get('vol_pile',0), "Sat": "m3", "Hrg": hsp_pile, "Tot": d_geo.get('vol_pile',0)*hsp_pile},
-        ]
+        # 6. Susun Tabel RAB
+        rab_data = []
         
-        df_rab = pd.DataFrame(rab_data)
-        st.dataframe(df_rab.style.format({"Vol": "{:.2f}", "Hrg": "{:,.0f}", "Tot": "{:,.0f}"}), use_container_width=True)
-        st.success(f"### TOTAL RAB: Rp {df_rab['Tot'].sum():,.0f}")
+        # A. PEKERJAAN STRUKTUR
+        if vol_beton > 0: rab_data.append({"Item": "Beton Struktur (K250)", "Vol": vol_beton, "Sat": "m3", "Hrg": hsp_beton, "Tot": vol_beton*hsp_beton})
+        if vol_besi > 0: rab_data.append({"Item": "Pembesian Polos", "Vol": vol_besi, "Sat": "kg", "Hrg": hsp_besi, "Tot": vol_besi*hsp_besi})
+        if d_geo.get('vol_talud', 0) > 0: rab_data.append({"Item": "Pondasi Talud Batu Kali", "Vol": d_geo['vol_talud'], "Sat": "m3", "Hrg": hsp_talud, "Tot": d_geo['vol_talud']*hsp_talud})
+        if d_geo.get('vol_pile', 0) > 0: rab_data.append({"Item": "Pondasi Bore Pile", "Vol": d_geo['vol_pile'], "Sat": "m3", "Hrg": hsp_pile, "Tot": d_geo['vol_pile']*hsp_pile})
         
-        s_data = {'fc': fc_in, 'fy': fy_in, 'b': st.session_state['geo']['b'], 'h': st.session_state['geo']['h'], 'sigma': sigma_tanah}
-        st.download_button("📊 Download Excel RAB", engine_export.create_excel_report(df_rab, s_data), "RAB.xlsx")
+        # B. PEKERJAAN ARSITEKTUR (Otomatis dari BIM)
+        if vol_dinding_final > 0:
+            rab_data.append({"Item": "Pas. Dinding Bata Merah", "Vol": vol_dinding_final, "Sat": "m2", "Hrg": hsp_bata, "Tot": vol_dinding_final*hsp_bata})
+            rab_data.append({"Item": "Plesteran Dinding", "Vol": vol_dinding_final*2, "Sat": "m2", "Hrg": hsp_plester, "Tot": vol_dinding_final*2*hsp_plester})
+            rab_data.append({"Item": "Acian Dinding", "Vol": vol_dinding_final*2, "Sat": "m2", "Hrg": hsp_acian, "Tot": vol_dinding_final*2*hsp_acian})
+            rab_data.append({"Item": "Pengecatan Dinding", "Vol": vol_dinding_final*2, "Sat": "m2", "Hrg": hsp_cat, "Tot": vol_dinding_final*2*hsp_cat})
+        
+        if jml_pintu > 0:
+            rab_data.append({"Item": "Pasang Kusen Pintu/Jendela", "Vol": jml_pintu+jml_jendela, "Sat": "Unit", "Hrg": hsp_kusen, "Tot": (jml_pintu+jml_jendela)*hsp_kusen})
+            
+        # C. PEKERJAAN MEP (Otomatis dari BIM)
+        if pjg_pipa > 0:
+            rab_data.append({"Item": "Instalasi Pipa PVC", "Vol": pjg_pipa, "Sat": "m'", "Hrg": hsp_pipa, "Tot": pjg_pipa*hsp_pipa})
+            
+        # 7. TAMPILKAN HASIL
+        if rab_data:
+            df_rab = pd.DataFrame(rab_data)
+            st.dataframe(df_rab.style.format({"Vol": "{:.2f}", "Hrg": "{:,.0f}", "Tot": "{:,.0f}"}), use_container_width=True)
+            
+            total_biaya = df_rab['Tot'].sum()
+            st.success(f"### 🏷️ TOTAL ESTIMASI BIAYA: Rp {total_biaya:,.0f}")
+            
+            if vol_dinding_bim > 0:
+                st.info(f"💡 Info: Data Arsitektur (Dinding {vol_dinding_bim} m2) & MEP diambil otomatis dari model BIM.")
+            
+            # Download Excel
+            s_data = {'fc': fc_in, 'fy': fy_in, 'b': st.session_state['geo']['b'], 'h': st.session_state['geo']['h'], 'sigma': sigma_tanah}
+            st.download_button("📊 Download Excel RAB", engine_export.create_excel_report(df_rab, s_data), "RAB_Project.xlsx")
+        else:
+            st.warning("Belum ada volume pekerjaan yang terhitung. Silakan input data di tab Struktur atau Upload BIM.")
 
 # ==========================================
 # 6. LOGIKA MODE: KONSULTAN AI (ENGINEX)
