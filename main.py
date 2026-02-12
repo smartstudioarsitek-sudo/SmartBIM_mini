@@ -50,7 +50,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# [FIX] CSS KHUSUS MENGHILANGKAN MENU HANTU
+# [FIX] CSS MENGHILANGKAN MENU HANTU & STYLING
 st.markdown("""
 <style>
     [data-testid="stSidebarNav"] {display: none !important;}
@@ -101,7 +101,7 @@ if 'geotech' not in st.session_state: st.session_state['geotech'] = {}
 for k in ['report_struk', 'report_baja', 'report_gempa', 'report_geo']:
     if k not in st.session_state: st.session_state[k] = {}
 
-# State Fitur Baru
+# State Fitur Baru (Grid & IFC)
 if 'grid_x' not in st.session_state: st.session_state.grid_x = [0.0, 4.0, 8.0]
 if 'grid_y' not in st.session_state: st.session_state.grid_y = [0.0, 5.0, 10.0]
 if 'levels' not in st.session_state: st.session_state.levels = [0.0, 4.0, 8.0] 
@@ -205,7 +205,7 @@ with st.sidebar:
     
     st.divider()
     
-    # --- [FIXED] PARAMETER & HARGA LENGKAP (ANTI ERROR) ---
+    # --- [FIXED] PARAMETER & HARGA LENGKAP ---
     with st.expander("⚙️ Parameter & Harga"):
         st.write("**Parameter Teknis**")
         fc_in = st.number_input("Mutu Beton f'c (MPa)", 25)
@@ -217,7 +217,6 @@ with st.sidebar:
         
         st.markdown("---")
         st.write("**Harga Satuan Material (RAB)**")
-        # Definisi variabel lengkap agar tidak NameError
         p_semen = st.number_input("Semen (Rp/kg)", 1500)
         p_pasir = st.number_input("Pasir (Rp/m3)", 250000)
         p_split = st.number_input("Split/Kerikil (Rp/m3)", 300000)
@@ -244,26 +243,56 @@ if menu_selection == "🏠 Dashboard Proyek":
     c1.metric("Status Data BIM", "✅ Terisi" if st.session_state.arsitek_mep else "❌ Kosong")
     c2.metric("Status Model Struktur", "✅ Terisi" if not st.session_state.struct_elements.empty else "❌ Kosong")
     c3.metric("Mutu Beton Desain", f"{fc_in} MPa")
-    st.info("Pilih modul di Sidebar untuk mulai bekerja.")
+    st.info("Selamat Datang di IndoBIM Integrated System. Aplikasi ini menggabungkan fitur Estimator (IFC), Analisa Struktur (Grid), dan RAB Dinamis.")
 
 # --- B. ESTIMATOR (IFC) ---
 elif menu_selection == "📂 Estimator (Arsitek)":
     st.markdown('<div class="main-header">📂 Estimator & QTO Arsitek</div>', unsafe_allow_html=True)
+    
+    # [RESTORASI FITUR LENGKAP ESTIMATOR]
     uploaded_ifc = st.file_uploader("Upload File IFC", type=["ifc"])
     if uploaded_ifc:
         try:
-            with st.spinner("Parsing IFC..."):
+            with st.spinner("Membaca & Membedah Data IFC..."):
                 eng_ifc = bim.IFC_Parser_Engine(uploaded_ifc)
-                q_a = eng_ifc.parse_architectural_quantities()
-                st.session_state.arsitek_mep = q_a
-                st.success("✅ Data IFC Berhasil Dibaca!")
-        except Exception as e: st.error(f"Error: {e}")
+                df_s = eng_ifc.parse_structure() # Parse Struktur
+                q_a = eng_ifc.parse_architectural_quantities() # QTO Arsitek
+                q_m = eng_ifc.parse_mep_quantities() # [RESTORED] QTO MEP
+                
+                # Simpan ke Session State (Gabung Arsitek + MEP)
+                st.session_state.arsitek_mep = {**q_a, **q_m}
+                
+                st.success(f"✅ Berhasil membaca {len(df_s)} elemen struktur & data arsitektur!")
+                
+                # [RESTORED] VISUALISASI 3D
+                if st.checkbox("Tampilkan Preview Struktur (Scatter Plot)"):
+                    if not df_s.empty:
+                        fig = plt.figure(figsize=(8, 6))
+                        ax = fig.add_subplot(111, projection='3d')
+                        count = 0
+                        for idx, row in df_s.iterrows():
+                            c = 'red' if 'Column' in row['Type'] else 'blue'
+                            ax.scatter(row['X'], row['Y'], row['Z'], c=c, marker='o', s=20)
+                            count += 1
+                            if count > 500: break
+                        ax.set_xlabel('X'); ax.set_ylabel('Y'); ax.set_zlabel('Z')
+                        st.pyplot(fig)
+                
+                # [RESTORED] DOWNLOAD CAD
+                engine_export = exp.Export_Engine()
+                if not df_s.empty:
+                    dxf_data = engine_export.generate_bim_dxf(df_s)
+                    st.download_button("📐 Download Denah CAD (.dxf)", dxf_data, "Denah_BIM.dxf", "application/dxf")
+
+        except Exception as e: st.error(f"Error IFC: {e}")
         
     if st.session_state.arsitek_mep:
         q = st.session_state.arsitek_mep
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         c1.metric("Luas Dinding", f"{q.get('Luas Dinding (m2)', 0):.2f} m²")
         c2.metric("Jumlah Pintu", f"{q.get('Jumlah Pintu (Unit)', 0)} Unit")
+        c3.metric("Pipa MEP", f"{q.get('Panjang Pipa/Duct (m\')', 0)} m")
+        with st.expander("Lihat Detail JSON"): st.json(q)
 
 # --- C. ANALISA STRUKTUR (GRID SYSTEM) ---
 elif menu_selection == "🏗️ Analisa Struktur (Global)":
@@ -299,6 +328,7 @@ elif menu_selection == "🏗️ Analisa Struktur (Global)":
         df_nodes = pd.DataFrame(nodes)
         st.session_state.struct_nodes = df_nodes
         
+        # Connect Elements
         for i, node in df_nodes.iterrows():
             upper = df_nodes[(df_nodes['X']==node['X']) & (df_nodes['Y']==node['Y']) & (df_nodes['Z']>node['Z'])].sort_values('Z')
             if not upper.empty:
@@ -354,13 +384,16 @@ elif menu_selection == "🏗️ Analisa Struktur (Global)":
 elif menu_selection == "🧮 Kalkulator Teknik (Detail)":
     st.markdown('<div class="main-header">🧮 Kalkulator Teknik Detail</div>', unsafe_allow_html=True)
     
+    # Init Engines Lokal
     calc_sni_local = sni.SNI_Concrete_2847(fc_in, fy_in)
     calc_biaya = ahsp.AHSP_Engine()
     calc_fdn = fdn.Foundation_Engine(sigma_tanah)
     calc_geo = geo.Geotech_Engine(gamma_tanah, phi_tanah, c_tanah)
+    engine_export = exp.Export_Engine()
     
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["Canvas", "Beton", "Baja", "Gempa", "Geoteknik"])
     
+    # [RESTORED] TAB 1: CANVAS
     with tab1:
         st.write("Canvas Drawing")
         canvas = st_canvas(fill_color="rgba(0, 150, 255, 0.3)", stroke_width=2, height=300, width=600, drawing_mode="rect", key="cvs")
@@ -375,25 +408,55 @@ elif menu_selection == "🧮 Kalkulator Teknik (Detail)":
                 st.success(f"Est. Dinding: {v_dinding:.1f} m2")
                 if st.button("Simpan Data"): st.session_state['drawing'] = {'vol_dinding': v_dinding}
 
+    # [RESTORED] TAB 2: BETON & DXF
     with tab2:
-        st.write("Cek Balok Beton")
-        Mu = st.number_input("Mu (kNm)", 50.0)
-        b = st.number_input("b (mm)", 250); h = st.number_input("h (mm)", 400)
-        As = calc_sni_local.kebutuhan_tulangan(Mu, b, h, 40)
-        st.metric("As Perlu", f"{As:.1f} mm2")
+        st.subheader("Cek Balok Beton")
+        c1, c2 = st.columns(2)
+        with c1:
+            Mu = st.number_input("Mu (kNm)", 50.0)
+            b = st.number_input("b (mm)", 250); h = st.number_input("h (mm)", 400)
+        with c2:
+            As = calc_sni_local.kebutuhan_tulangan(Mu, b, h, 40)
+            st.metric("As Perlu", f"{As:.1f} mm2")
+            
+            # [RESTORED] DOWNLOAD DXF BALOK
+            p_beam = {'b': b, 'h': h, 'dia': 16, 'n': 4, 'pjg': 6.0}
+            st.download_button("📥 Download Detail Balok (.dxf)", engine_export.create_dxf("BALOK", p_beam), "detail_balok.dxf")
 
+    # [RESTORED] TAB 3: BAJA & ATAP
     with tab3:
-        st.write("Cek Baja")
-        st.info("Fitur Cek Baja Tersedia")
+        st.subheader("Cek Kapasitas Baja")
+        mu_b = st.number_input("Mu Baja (kNm)", 50.0)
+        sel_wf = st.selectbox("Profil", ["WF 200", "WF 250"])
+        st.write("Hasil Cek: AMAN (Simulasi)")
+        
+        st.divider()
+        # [RESTORED] HITUNG BAJA RINGAN
+        st.subheader("Kebutuhan Atap Baja Ringan")
+        la = st.number_input("Luas Atap (m2)", 100.0)
+        calc_tr = steel.Baja_Ringan_Calc()
+        res_tr = calc_tr.hitung_kebutuhan_atap(la, "Metal")
+        st.json(res_tr)
 
+    # [RESTORED] TAB 4: GEMPA
     with tab4:
-        st.write("Gempa SNI 1726")
+        st.subheader("Base Shear SNI 1726")
         eng_q = quake.SNI_Gempa_1726(0.8, 0.4, "SD")
         v, _, _ = eng_q.hitung_base_shear(2000, 8)
         st.metric("V Base Shear", f"{v:.1f} kN")
 
+    # [RESTORED] TAB 5: GEOTEK & TALUD
     with tab5:
-        st.write("Pondasi")
+        st.subheader("Pondasi & Talud")
+        
+        # [RESTORED] TALUD CALCULATION
+        ht = st.number_input("Tinggi Talud (m)", 3.0)
+        if st.button("Hitung Talud"):
+            res_t = calc_geo.hitung_talud_batu_kali(ht, 0.4, 1.5)
+            st.write(f"SF Guling: {res_t['SF_Guling']:.2f}")
+            st.session_state['geotech']['vol_talud'] = res_t['Vol_Per_M']
+            
+        st.divider()
         res = calc_fdn.hitung_footplate(150, 1.0, 1.0, 300)
         st.write(res)
         st.session_state['pondasi']['fp_beton'] = res['vol_beton']
@@ -415,6 +478,7 @@ elif menu_selection == "💰 Integrasi RAB Final":
         for _, el in st.session_state.struct_elements.iterrows(): vol_beton += 4.0 * el['b'] * el['h']
 
     vol_dinding = d_draw.get('vol_dinding', 0) if d_draw else d_bim.get('Luas Dinding (m2)', 0)
+    vol_pipa = d_bim.get('Panjang Pipa/Duct (m\')', 0)
     
     # [FIX] MENGGUNAKAN VARIABEL LENGKAP DI SIDEBAR
     h_mat = {
@@ -427,10 +491,14 @@ elif menu_selection == "💰 Integrasi RAB Final":
     
     hsp_b = calc_biaya.hitung_hsp('beton_k250', h_mat, h_wage)
     hsp_d = calc_biaya.hitung_hsp('pasangan_bata_merah', h_mat, h_wage)
+    hsp_p = calc_biaya.hitung_hsp('pasang_pipa_pvc', h_mat, h_wage)
+    hsp_t = calc_biaya.hitung_hsp('pasangan_batu_kali', h_mat, h_wage)
     
     rab_data = [
         {"Item": "Beton Struktur", "Vol": vol_beton, "Sat": "m3", "Hrg": hsp_b, "Tot": vol_beton*hsp_b},
         {"Item": "Dinding Bata", "Vol": vol_dinding, "Sat": "m2", "Hrg": hsp_d, "Tot": vol_dinding*hsp_d},
+        {"Item": "Pipa MEP", "Vol": vol_pipa, "Sat": "m'", "Hrg": hsp_p, "Tot": vol_pipa*hsp_p},
+        {"Item": "Talud Batu Kali", "Vol": d_geo.get('vol_talud',0), "Sat": "m3", "Hrg": hsp_t, "Tot": d_geo.get('vol_talud',0)*hsp_t},
     ]
     
     df_rab = pd.DataFrame(rab_data)
