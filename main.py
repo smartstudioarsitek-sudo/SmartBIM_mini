@@ -17,7 +17,8 @@ from streamlit_drawable_canvas import st_canvas
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
-# --- IMPORT MODULE ENGINEERING LOKAL (Pastikan file ada di folder yang sama) ---
+# --- IMPORT MODULE ENGINEERING LOKAL ---
+# Pastikan file-file ini ada di folder yang sama
 import libs_sni as sni
 import libs_ahsp as ahsp
 import libs_bim_importer as bim
@@ -35,7 +36,7 @@ except ImportError:
     st.stop()
 
 # ==========================================
-# 1. KONFIGURASI HALAMAN
+# 1. KONFIGURASI HALAMAN & CSS
 # ==========================================
 st.set_page_config(
     page_title="IndoBIM x ENGINEX Ultimate", 
@@ -44,7 +45,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CSS CUSTOM UNTUK TAMPILAN GAGAH ---
+# --- CSS CUSTOM UNTUK TAMPILAN PROFESIONAL ---
 st.markdown("""
 <style>
     .main-header {font-size: 28px; font-weight: bold; color: #1E3A8A; margin-bottom: 5px;}
@@ -70,12 +71,12 @@ st.markdown("""
 # 2. INISIALISASI STATE (MEMORI APLIKASI)
 # ==========================================
 
-# A. State Kalkulator (IndoBIM) - Agar data tidak hilang saat klik tombol
+# A. State Kalkulator (IndoBIM) - Agar data tidak hilang saat interaksi
 if 'geo' not in st.session_state: st.session_state['geo'] = {'L': 6.0, 'b': 250, 'h': 400}
 if 'structure' not in st.session_state: st.session_state['structure'] = {}
 if 'pondasi' not in st.session_state: st.session_state['pondasi'] = {}
 if 'geotech' not in st.session_state: st.session_state['geotech'] = {}
-if 'arsitek_mep' not in st.session_state: st.session_state['arsitek_mep'] = {} # Data IFC masuk sini
+if 'arsitek_mep' not in st.session_state: st.session_state['arsitek_mep'] = {} # Tempat data IFC
 if 'bim_loads' not in st.session_state: st.session_state['bim_loads'] = 0
 if 'drawing' not in st.session_state: st.session_state['drawing'] = {}
 
@@ -91,7 +92,7 @@ if 'processed_files' not in st.session_state: st.session_state.processed_files =
 if 'current_expert_active' not in st.session_state: st.session_state.current_expert_active = "👑 The GEMS Grandmaster"
 
 # ==========================================
-# 3. HELPER FUNCTIONS (OTAK LOGIKA)
+# 3. HELPER FUNCTIONS (LOGIKA PENDUKUNG)
 # ==========================================
 
 @st.cache_resource
@@ -108,9 +109,11 @@ def get_available_models_from_google(api_key_trigger):
     except Exception as e:
         return [], str(e)
 
-# --- [UPDATE PENTING: FUNGSI INI SUDAH DIPERBAIKI] ---
 def get_project_summary_context():
-    """Mengambil data teknis dari Tab Kalkulator & BIM untuk dikirim ke AI."""
+    """
+    Mengambil rangkuman data teknis dari Tab Kalkulator & BIM 
+    untuk dikirim sebagai 'Context' ke AI.
+    """
     summary = "DATA TEKNIS PROYEK SAAT INI (Dari Kalkulator IndoBIM):\n"
     
     # 1. STRUKTUR BETON
@@ -133,7 +136,7 @@ def get_project_summary_context():
         d = st.session_state['drawing']
         summary += f"- Estimasi Gambar Manual: Dinding {d.get('vol_dinding')} m2, Beton {d.get('vol_beton')} m3\n"
     
-    # 5. DATA BIM/IFC (UPDATE BARU)
+    # 5. DATA BIM/IFC (PENTING AGAR AI TAHU DATA IFC)
     if st.session_state.get('arsitek_mep'):
         m = st.session_state['arsitek_mep']
         summary += f"\n[DATA HASIL SCAN BIM/IFC 3D]\n"
@@ -145,6 +148,7 @@ def get_project_summary_context():
     return summary
 
 def create_docx_from_text(text_content):
+    """Membuat file Word dari jawaban AI"""
     try:
         doc = docx.Document()
         doc.add_heading('Laporan Konsultasi AI - IndoBIM', 0)
@@ -189,6 +193,7 @@ def extract_table_to_excel(text_content):
     except: return None
 
 def execute_generated_code(code_str):
+    """Menjalankan kode Python yang digenerate AI (misal: Plotting)"""
     try:
         local_vars = {"pd": pd, "np": np, "plt": plt, "st": st}
         exec(code_str, {}, local_vars)
@@ -198,7 +203,7 @@ def execute_generated_code(code_str):
         return False
 
 # ==========================================
-# 4. DEFINISI PERSONA (LENGKAP)
+# 4. DEFINISI PERSONA (AI EXPERTS)
 # ==========================================
 PLOT_INSTRUCTION = """
 [ATURAN VISUALISASI]: Jika diminta grafik, tulis kode Python (matplotlib) dalam blok ```python. 
@@ -265,8 +270,8 @@ gems_persona = {
 }
 
 def get_auto_pilot_decision(user_query, model_name):
+    """Memilih ahli yang tepat secara otomatis menggunakan AI"""
     try:
-        # Gunakan model yang dipilih user untuk routing juga
         router_model = genai.GenerativeModel(model_name)
         list_ahli = list(gems_persona.keys())
         router_prompt = f"""
@@ -353,7 +358,7 @@ with st.sidebar:
         c_tanah = st.number_input("Kohesi (kN/m2)", 5.0)
         sigma_tanah = st.number_input("Daya Dukung (kN/m2)", 150.0)
         
-        st.markdown("**Harga Satuan**")
+        st.markdown("**Harga Satuan (RAB)**")
         p_semen = st.number_input("Semen (Rp/kg)", 1500)
         p_pasir = st.number_input("Pasir (Rp/m3)", 250000)
         p_split = st.number_input("Split (Rp/m3)", 300000)
@@ -392,9 +397,9 @@ if app_mode == "🧮 Kalkulator Teknik (Tools)":
         c1.metric("Mutu Beton", f"{fc_in} MPa")
         c2.metric("Mutu Baja", f"{fy_in} MPa")
         c3.metric("Tanah (Phi)", f"{phi_tanah}°")
-        st.info("Selamat Datang di IndoBIM Ultimate. Gunakan tab di atas untuk perhitungan.")
+        st.info("Selamat Datang di IndoBIM Ultimate. Gunakan tab di atas untuk perhitungan teknik.")
 
-    # [TAB 2: BIM IMPORT - UPDATE UI]
+    # [TAB 2: BIM IMPORT - DENGAN FITUR VISUALISASI 3D]
     with tabs[1]:
         st.markdown("### 📂 Upload Model 3D (.IFC)")
         uploaded_ifc = st.file_uploader("Upload File IFC", type=["ifc"])
@@ -409,7 +414,7 @@ if app_mode == "🧮 Kalkulator Teknik (Tools)":
                     
                     st.success(f"✅ Berhasil membaca {len(df_s)} elemen struktur!")
                     
-                    # [UI POLISH: MENAMPILKAN DATA DENGAN METRIC]
+                    # [TAMPILAN METRIK DATA]
                     st.markdown("#### 📊 Ringkasan Arsitektur")
                     col1, col2, col3 = st.columns(3)
                     
@@ -430,13 +435,43 @@ if app_mode == "🧮 Kalkulator Teknik (Tools)":
 
                     # Tombol Simpan
                     if st.button("💾 Simpan Data ke Memori AI"):
-                        # Simpan ke Session State agar AI bisa baca
                         st.session_state['arsitek_mep'] = {**q_a, **q_m}
                         st.session_state['bim_loads'] = eng_ifc.calculate_architectural_loads()['Total Load Tambahan (kN)']
-                        
                         st.toast("Data BIM tersimpan! Silakan chat dengan Konsultan AI.", icon="🤖")
                         st.balloons()
-                        
+                    
+                    # === [VISUALISASI 3D UNTUK DEBUG KOORDINAT] ===
+                    st.divider()
+                    st.markdown("#### 🕵️ Verifikasi Visual (3D Plot)")
+                    st.caption("Gunakan ini untuk memastikan koordinat tidak 0,0,0 (menumpuk).")
+                    
+                    if st.checkbox("Tampilkan Preview Struktur (Scatter Plot)"):
+                        if not df_s.empty:
+                            # Cek apakah semua koordinat 0?
+                            if df_s['X'].sum() == 0 and df_s['Y'].sum() == 0:
+                                st.warning("⚠️ PERINGATAN: Semua koordinat terdeteksi (0,0,0). Isu pada 'Base Point' file IFC.")
+                            
+                            fig = plt.figure(figsize=(8, 6))
+                            ax = fig.add_subplot(111, projection='3d')
+                            
+                            # Warna berdasarkan tipe
+                            colors = {'Column': 'red', 'Beam': 'blue', 'Wall': 'gray', 'Slab': 'green', 'Footing': 'black'}
+                            
+                            count_obj = 0
+                            for idx, row in df_s.iterrows():
+                                c = colors.get(row['Type'], 'cyan')
+                                ax.scatter(row['X'], row['Y'], row['Z'], c=c, marker='o', s=20)
+                                count_obj += 1
+                                if count_obj > 500: break # Limit render
+                            
+                            ax.set_xlabel('X (m)')
+                            ax.set_ylabel('Y (m)')
+                            ax.set_zlabel('Z (m)')
+                            ax.set_title(f"Preview Posisi {count_obj} Elemen Pertama")
+                            st.pyplot(fig)
+                        else:
+                            st.write("Belum ada data struktur.")
+
             except Exception as e: 
                 st.error(f"Terjadi kesalahan saat parsing IFC: {e}")
 
@@ -555,11 +590,11 @@ if app_mode == "🧮 Kalkulator Teknik (Tools)":
         vol_besi = d_str.get('berat_besi', 0) + d_pon.get('fp_besi', 0)
         vol_dinding = d_draw.get('vol_dinding', 0) if d_draw else d_bim.get('Luas Dinding (m2)', 0)
         
-        # Harga Dasar
+        # Harga Dasar (Ambil dari Sidebar)
         h_mat = {'semen': p_semen, 'pasir': p_pasir, 'split': p_split, 'besi': p_besi, 'kayu': p_kayu, 'batu kali': p_batu, 'beton k300': p_beton_ready, 'bata merah': p_bata, 'cat tembok': p_cat, 'pipa pvc': p_pipa}
         h_wage = {'pekerja': u_pekerja, 'tukang': u_tukang, 'mandor': u_pekerja*1.2}
         
-        # HSP
+        # Hitung HSP
         hsp_b = calc_biaya.hitung_hsp('beton_k250', h_mat, h_wage)
         hsp_s = calc_biaya.hitung_hsp('pembesian_polos', h_mat, h_wage) / 10
         hsp_d = calc_biaya.hitung_hsp('pasangan_bata_merah', h_mat, h_wage)
@@ -627,7 +662,7 @@ elif app_mode == "🤖 Konsultan AI (Chat)":
         # Prepare Context
         context_files = ""
         if uploaded_files:
-            # (Logic simple utk baca file, detail ada di app_enginex sebelumnya)
+            # Simplifikasi: Hanya memberi tahu AI ada file
             context_files = "\n[Ada File Terlampir]"
             
         final_context = get_project_summary_context() + context_files + "\n\n" + prompt
