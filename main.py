@@ -439,7 +439,20 @@ if app_mode == "🧮 Kalkulator Teknik (Tools)":
                         st.session_state['bim_loads'] = eng_ifc.calculate_architectural_loads()['Total Load Tambahan (kN)']
                         st.toast("Data BIM tersimpan! Silakan chat dengan Konsultan AI.", icon="🤖")
                         st.balloons()
+
+
+                    # ... tombol simpan data ...
                     
+                    # [FITUR BARU: GENERATE CAD DRAWING]
+                    if not df_s.empty:
+                        dxf_data = engine_export.generate_bim_dxf(df_s)
+                        st.download_button(
+                            label="📐 Download Denah CAD (.dxf)",
+                            data=dxf_data,
+                            file_name="Denah_BIM_Generated.dxf",
+                            mime="application/dxf",
+                            help="Download file layout titik kolom & dinding untuk dibuka di AutoCAD"
+                        )
                     # === [VISUALISASI 3D UNTUK DEBUG KOORDINAT] ===
                     st.divider()
                     st.markdown("#### 🕵️ Verifikasi Visual (3D Plot)")
@@ -737,3 +750,4 @@ elif app_mode == "🤖 Konsultan AI (Chat)":
                     
                 except Exception as e:
                     st.error(f"Error AI: {e}")
+
