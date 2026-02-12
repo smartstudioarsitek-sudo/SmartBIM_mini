@@ -8,16 +8,16 @@ import json
 import re
 import time
 from PIL import Image
-import docx  # python-docx
+import docx  # library: python-docx
 import zipfile
-from pptx import Presentation
+from pptx import Presentation # library: python-pptx
 from streamlit_drawable_canvas import st_canvas
 
 # --- AI & GOOGLE LIBRARIES ---
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
-# --- IMPORT MODULE ENGINEERING LOKAL ---
+# --- IMPORT MODULE ENGINEERING LOKAL (Pastikan file ada di folder yang sama) ---
 import libs_sni as sni
 import libs_ahsp as ahsp
 import libs_bim_importer as bim
@@ -44,7 +44,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CSS CUSTOM ---
+# --- CSS CUSTOM UNTUK TAMPILAN GAGAH ---
 st.markdown("""
 <style>
     .main-header {font-size: 28px; font-weight: bold; color: #1E3A8A; margin-bottom: 5px;}
@@ -67,18 +67,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. INISIALISASI STATE
+# 2. INISIALISASI STATE (MEMORI APLIKASI)
 # ==========================================
 
-# A. State Kalkulator (IndoBIM)
+# A. State Kalkulator (IndoBIM) - Agar data tidak hilang saat klik tombol
 if 'geo' not in st.session_state: st.session_state['geo'] = {'L': 6.0, 'b': 250, 'h': 400}
 if 'structure' not in st.session_state: st.session_state['structure'] = {}
 if 'pondasi' not in st.session_state: st.session_state['pondasi'] = {}
 if 'geotech' not in st.session_state: st.session_state['geotech'] = {}
-if 'arsitek_mep' not in st.session_state: st.session_state['arsitek_mep'] = {}
+if 'arsitek_mep' not in st.session_state: st.session_state['arsitek_mep'] = {} # Data IFC masuk sini
+if 'bim_loads' not in st.session_state: st.session_state['bim_loads'] = 0
 if 'drawing' not in st.session_state: st.session_state['drawing'] = {}
 
-# State Report
+# State Report (Untuk PDF/Laporan)
 for k in ['report_struk', 'report_baja', 'report_gempa', 'report_geo']:
     if k not in st.session_state: st.session_state[k] = {}
 
@@ -90,7 +91,7 @@ if 'processed_files' not in st.session_state: st.session_state.processed_files =
 if 'current_expert_active' not in st.session_state: st.session_state.current_expert_active = "👑 The GEMS Grandmaster"
 
 # ==========================================
-# 3. HELPER FUNCTIONS
+# 3. HELPER FUNCTIONS (OTAK LOGIKA)
 # ==========================================
 
 @st.cache_resource
@@ -107,21 +108,40 @@ def get_available_models_from_google(api_key_trigger):
     except Exception as e:
         return [], str(e)
 
+# --- [UPDATE PENTING: FUNGSI INI SUDAH DIPERBAIKI] ---
 def get_project_summary_context():
-    """Mengambil data teknis dari Tab Kalkulator untuk dikirim ke AI."""
+    """Mengambil data teknis dari Tab Kalkulator & BIM untuk dikirim ke AI."""
     summary = "DATA TEKNIS PROYEK SAAT INI (Dari Kalkulator IndoBIM):\n"
+    
+    # 1. STRUKTUR BETON
     if st.session_state.get('report_struk'):
         s = st.session_state['report_struk']
         summary += f"- Beton: Dimensi {s.get('Dimensi')}, Mu={s.get('Mu')} kNm, Perlu Tulangan={s.get('Tulangan')}\n"
+    
+    # 2. STRUKTUR BAJA
     if st.session_state.get('report_baja'):
         b = st.session_state['report_baja']
         summary += f"- Baja: Profil {b.get('Profil')}, Ratio={b.get('Ratio')}, Status={b.get('Status')}\n"
+    
+    # 3. GEOTEKNIK
     if st.session_state.get('report_geo'):
         g = st.session_state['report_geo']
         summary += f"- Geoteknik: SF Talud={g.get('Talud_SF')}, Qall Pile={g.get('Pile_Qall')} kN\n"
+    
+    # 4. GAMBAR CANVAS (MANUAL)
     if st.session_state.get('drawing'):
         d = st.session_state['drawing']
-        summary += f"- Estimasi Gambar: Dinding {d.get('vol_dinding')} m2, Beton {d.get('vol_beton')} m3\n"
+        summary += f"- Estimasi Gambar Manual: Dinding {d.get('vol_dinding')} m2, Beton {d.get('vol_beton')} m3\n"
+    
+    # 5. DATA BIM/IFC (UPDATE BARU)
+    if st.session_state.get('arsitek_mep'):
+        m = st.session_state['arsitek_mep']
+        summary += f"\n[DATA HASIL SCAN BIM/IFC 3D]\n"
+        summary += f"- Luas Dinding Total: {m.get('Luas Dinding (m2)', 0)} m2\n"
+        summary += f"- Jumlah Pintu: {m.get('Jumlah Pintu (Unit)', 0)} unit\n"
+        summary += f"- Jumlah Jendela: {m.get('Jumlah Jendela (Unit)', 0)} unit\n"
+        summary += f"- Panjang Pipa MEP: {m.get('Panjang Pipa/Duct (m\')', 0)} m\n"
+    
     return summary
 
 def create_docx_from_text(text_content):
@@ -374,27 +394,51 @@ if app_mode == "🧮 Kalkulator Teknik (Tools)":
         c3.metric("Tanah (Phi)", f"{phi_tanah}°")
         st.info("Selamat Datang di IndoBIM Ultimate. Gunakan tab di atas untuk perhitungan.")
 
-    # [TAB 2: BIM IMPORT]
+    # [TAB 2: BIM IMPORT - UPDATE UI]
     with tabs[1]:
-        uploaded_ifc = st.file_uploader("Upload .IFC", type=["ifc"])
+        st.markdown("### 📂 Upload Model 3D (.IFC)")
+        uploaded_ifc = st.file_uploader("Upload File IFC", type=["ifc"])
+        
         if uploaded_ifc:
             try:
-                with st.spinner("Parsing IFC..."):
+                with st.spinner("🚀 Sedang membedah struktur 3D..."):
                     eng_ifc = bim.IFC_Parser_Engine(uploaded_ifc)
                     df_s = eng_ifc.parse_structure()
                     q_a = eng_ifc.parse_architectural_quantities()
                     q_m = eng_ifc.parse_mep_quantities()
                     
-                    st.success(f"Struktur: {len(df_s)} items")
-                    st.dataframe(df_s.head())
-                    st.write(q_a)
-                    st.write(q_m)
+                    st.success(f"✅ Berhasil membaca {len(df_s)} elemen struktur!")
                     
-                    if st.button("Simpan Data BIM"):
+                    # [UI POLISH: MENAMPILKAN DATA DENGAN METRIC]
+                    st.markdown("#### 📊 Ringkasan Arsitektur")
+                    col1, col2, col3 = st.columns(3)
+                    
+                    # Gunakan .get() untuk keamanan jika data kosong
+                    luas_dinding = q_a.get('Luas Dinding (m2)', 0)
+                    jml_pintu = q_a.get('Jumlah Pintu (Unit)', 0)
+                    jml_jendela = q_a.get('Jumlah Jendela (Unit)', 0)
+                    
+                    col1.metric("🧱 Luas Dinding", f"{luas_dinding} m²")
+                    col2.metric("🚪 Jumlah Pintu", f"{jml_pintu} Unit")
+                    col3.metric("🪟 Jumlah Jendela", f"{jml_jendela} Unit")
+                    
+                    with st.expander("Lihat Data MEP (Pipa & Duct)"):
+                        st.json(q_m)
+                        
+                    with st.expander("Lihat Tabel Elemen Struktur"):
+                        st.dataframe(df_s.head(10))
+
+                    # Tombol Simpan
+                    if st.button("💾 Simpan Data ke Memori AI"):
+                        # Simpan ke Session State agar AI bisa baca
                         st.session_state['arsitek_mep'] = {**q_a, **q_m}
                         st.session_state['bim_loads'] = eng_ifc.calculate_architectural_loads()['Total Load Tambahan (kN)']
-                        st.toast("Data BIM Tersimpan!", icon="✅")
-            except Exception as e: st.error(f"Error: {e}")
+                        
+                        st.toast("Data BIM tersimpan! Silakan chat dengan Konsultan AI.", icon="🤖")
+                        st.balloons()
+                        
+            except Exception as e: 
+                st.error(f"Terjadi kesalahan saat parsing IFC: {e}")
 
     # [TAB 3: MODELING & CANVAS]
     with tabs[2]:
