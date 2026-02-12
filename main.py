@@ -8,21 +8,19 @@ import json
 import re
 import time
 from PIL import Image
-import docx  # library: python-docx
+import docx
 import zipfile
-from pptx import Presentation # library: python-pptx
+from pptx import Presentation
 from streamlit_drawable_canvas import st_canvas
 
 # --- LIBRARIES KHUSUS ENGINEERING & AI ---
-# Pastikan library ini terinstall di environment: 
-# pip install anastruct ifcopenshell google-generativeai
+# Pastikan library ini terinstall
 from anastruct.fem.system import SystemElements
 import ifcopenshell
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # --- IMPORT MODULE LOKAL ---
-# Pastikan file-file libs_*.py ada di folder yang sama
 import libs_sni as sni
 import libs_ahsp as ahsp
 import libs_bim_importer as bim
@@ -32,8 +30,7 @@ import libs_export as exp
 import libs_baja as steel
 import libs_gempa as quake
 
-# --- IMPORT BACKEND DATABASE (Safety Mode) ---
-# Menggunakan Dummy Class jika backend belum siap agar tidak error
+# --- IMPORT BACKEND DATABASE (Safety) ---
 try:
     from backend_enginex import EnginexBackend
 except ImportError:
@@ -54,8 +51,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Menghilangkan Menu Bawaan Streamlit yang mengganggu (Menu Hantu)
 st.markdown("""
 <style>
+    /* Sembunyikan Navigasi Bawaan Streamlit jika ada pages */
+    [data-testid="stSidebarNav"] {display: none !important;}
+    
     .main-header {font-size: 26px; font-weight: bold; color: #1E3A8A; margin-bottom: 20px; border-bottom: 2px solid #1E3A8A; padding-bottom: 10px;}
     .stTabs [data-baseweb="tab-list"] { gap: 2px; }
     .stTabs [data-baseweb="tab"] { height: 45px; background-color: #f0f2f6; border-radius: 4px 4px 0 0; font-weight: 600;}
@@ -80,33 +81,26 @@ class StructuralEngine:
         
         # 1. Add Elements
         for idx, el in elements.iterrows():
-            # Cari koordinat node start & end
             n1 = nodes[nodes['ID'] == el['Start']].iloc[0]
             n2 = nodes[nodes['ID'] == el['End']].iloc[0]
             
-            # Hitung Inersia (I) sederhana berdasarkan dimensi b/h
-            # E beton ~ 4700sqrt(fc) -> misal 23500 MPa
-            # EI harus dikalikan faktor kekakuan, disini kita pakai dummy stiffness agar solver jalan
+            # Hitung Inersia (I) sederhana (EI dimodifikasi agar solver stabil)
             EI_val = 5000 * (el['b'] * el['h']**3 / 12) * 10000 
             EA_val = 15000 * (el['b'] * el['h']) * 1000
             
-            # AnaStruct bekerja di 2D (x, y). Kita mapping Z (tinggi) ke Y di AnaStruct.
-            # Jarak Horizontal (X) -> x, Jarak Vertikal (Z) -> y
+            # AnaStruct bekerja di 2D (x, y). Mapping: X->x, Z->y
             ss.add_element(location=[[n1['X'], n1['Z']], [n2['X'], n2['Z']]], EI=EI_val, EA=EA_val)
 
-        # 2. Add Supports (Tumpuan)
-        # Asumsi Node dengan Z=0 adalah Jepit
+        # 2. Add Supports (Tumpuan Jepit di Z=0)
         support_ids = []
         for idx, n in nodes.iterrows():
             if n['Z'] == 0:
-                # Cari ID node di AnaStruct berdasarkan lokasi
                 nid = ss.find_node_id(location=[n['X'], n['Z']])
                 if nid:
                     ss.add_support_fixed(node_id=nid)
                     support_ids.append(nid)
         
-        # 3. Add Loads (Beban Merata)
-        # Tambahkan beban ke semua elemen horizontal (Balok)
+        # 3. Add Loads (Beban Merata pada semua elemen)
         if load_value > 0:
             ss.q_load(q=-load_value, element_id='all', direction='y')
 
@@ -232,13 +226,16 @@ with st.sidebar:
     
     st.divider()
     
-    # --- PARAMETER HARGA GLOBAL ---
+    # --- PARAMETER HARGA & TEKNIS GLOBAL ---
+    # [FIXED] Menambahkan variabel gamma_tanah agar tidak NameError
     with st.expander("⚙️ Parameter & Harga"):
         fc_in = st.number_input("Mutu Beton f'c (MPa)", 25)
         fy_in = st.number_input("Mutu Besi fy (MPa)", 400)
         
-        # Parameter Tanah (Untuk Kalkulator Geotek)
+        st.markdown("**Parameter Geoteknik**")
+        gamma_tanah = st.number_input("Berat Tanah (kN/m3)", 18.0) # <--- INI YG BIKIN ERROR KEMARIN
         phi_tanah = st.number_input("Phi Tanah (deg)", 30.0)
+        c_tanah = st.number_input("Kohesi (kN/m2)", 5.0)
         sigma_tanah = st.number_input("Daya Dukung (kN/m2)", 150.0)
         
         st.markdown("**Harga Satuan (HSP)**")
@@ -251,7 +248,6 @@ with st.sidebar:
         p_split = st.number_input("Split (Rp/m3)", 300000)
         p_kayu = st.number_input("Kayu (Rp/m3)", 2500000)
         p_batu = st.number_input("Batu Kali (Rp/m3)", 280000)
-        p_beton_ready = st.number_input("Readymix K300", 1100000)
         p_pipa = st.number_input("Pipa 3/4 (m)", 15000)
         u_tukang = st.number_input("Tukang (OH)", 135000)
         u_pekerja = st.number_input("Pekerja (OH)", 110000)
@@ -429,7 +425,8 @@ elif menu_selection == "🧮 Kalkulator Teknik (Detail)":
     calc_sni_local = sni.SNI_Concrete_2847(fc_in, fy_in)
     calc_biaya = ahsp.AHSP_Engine()
     calc_fdn = fdn.Foundation_Engine(sigma_tanah)
-    calc_geo = geo.Geotech_Engine(gamma_tanah, phi_tanah, 0)
+    # [FIXED] Menggunakan gamma_tanah dan phi_tanah yang sudah didefinisikan di Sidebar
+    calc_geo = geo.Geotech_Engine(gamma_tanah, phi_tanah, c_tanah)
     engine_export = exp.Export_Engine()
     
     tab_calc1, tab_calc2, tab_calc3, tab_calc4, tab_calc5 = st.tabs([
@@ -560,7 +557,7 @@ elif menu_selection == "💰 Integrasi RAB Final":
 # ------------------------------------------------------------------
 elif menu_selection == "🤖 Konsultan AI":
     
-    st.markdown(f'<div class="main-header">🤖 AI Consultant</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="main-header">🤖 AI Consultant: {nama_proyek}</div>', unsafe_allow_html=True)
     
     # --- PILIH AHLI (SIDEBAR BAWAH) ---
     with st.sidebar:
@@ -574,7 +571,7 @@ elif menu_selection == "🤖 Konsultan AI":
         st.markdown("### 📂 Upload Data")
         uploaded_files = st.file_uploader("File Pendukung:", accept_multiple_files=True)
         if st.button("🧹 Reset Chat"):
-            db.clear_chat("Proyek Aktif", st.session_state.current_expert_active)
+            db.clear_chat(nama_proyek, st.session_state.current_expert_active)
             st.rerun()
 
     # --- CHAT AREA ---
@@ -582,7 +579,7 @@ elif menu_selection == "🤖 Konsultan AI":
     st.caption(f"Status: **Connected** | Expert: **{current_expert}** | Brain: **{selected_model_name}**")
     
     # Render History
-    history = db.get_chat_history("Proyek Aktif", current_expert)
+    history = db.get_chat_history(nama_proyek, current_expert)
     for chat in history:
         with st.chat_message(chat['role']): st.markdown(chat['content'])
         
@@ -595,7 +592,7 @@ elif menu_selection == "🤖 Konsultan AI":
             st.toast(f"Dialihkan ke: {target_expert}", icon="🔀")
             
         # Save User Msg
-        db.simpan_chat("Proyek Aktif", target_expert, "user", prompt)
+        db.simpan_chat(nama_proyek, target_expert, "user", prompt)
         with st.chat_message("user"): st.markdown(prompt)
         
         # Prepare Context
@@ -621,7 +618,7 @@ elif menu_selection == "🤖 Konsultan AI":
                     ans = response.text
                     
                     st.markdown(ans)
-                    db.simpan_chat("Proyek Aktif", target_expert, "assistant", ans)
+                    db.simpan_chat(nama_proyek, target_expert, "assistant", ans)
                     
                     # Cek Plotting Code
                     if "```python" in ans and "plt." in ans:
