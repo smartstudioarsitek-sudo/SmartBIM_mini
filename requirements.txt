@@ -1,8 +1,6 @@
-
 streamlit
 pandas
 XlsxWriter
-streamlit-drawable-canvas
 matplotlib
 numpy 
 streamlit-drawable-canvas 
@@ -12,13 +10,13 @@ ifcopenshell
 google-generativeai
 Pillow
 fpdf2
-python-docx
 PyPDF2
 python-pptx
 python-docx
 libxml2-dev
 libxslt-dev
 ifcopenshell-python
+
 
 
 
