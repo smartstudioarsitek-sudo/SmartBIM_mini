@@ -16,6 +16,10 @@ python-docx
 libxml2-dev
 libxslt-dev
 ifcopenshell-python
+libxml2-dev
+libxslt-dev
+build-essential
+python3-dev
 
 
 
