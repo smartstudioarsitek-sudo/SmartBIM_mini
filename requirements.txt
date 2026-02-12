@@ -18,6 +18,8 @@ python-pptx
 python-docx
 libxml2-dev
 libxslt-dev
+ifcopenshell-python
+
 
 
 
